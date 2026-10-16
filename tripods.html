@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Badminton Court - Tripod Setup</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #071721; color: #ecfcf7; }
+    #app { width: 100%; height: 100%; display: block; }
+    [hidden] { display: none !important; }
+    .header { position: fixed; left: 24px; top: 22px; pointer-events: none; }
+    .eyebrow { color: #7ce3cc; letter-spacing: .15em; font-size: 11px; font-weight: 750; margin: 0 0 10px; }
+    h1 { margin: 0; font-size: clamp(20px, 3vw, 34px); font-weight: 730; letter-spacing: -.05em; }
+    .subtitle { color: #acc2c9; font-size: 13px; margin-top: 8px; }
+    .panel { position: fixed; right: 24px; top: 24px; width: 245px; max-height: calc(100vh - 48px); overflow-y: auto; padding: 18px; border: 1px solid rgba(197,255,239,.14); border-radius: 18px; background: rgba(4,21,30,.74); backdrop-filter: blur(17px); box-shadow: 0 16px 48px rgba(0,0,0,.18); }
+    .panel-title { text-transform: uppercase; color: #90b4b7; font-weight: 750; letter-spacing: .11em; font-size: 10px; margin: 0 0 12px; }
+    .section + .section { margin-top: 18px; }
+    form { display: grid; gap: 8px; margin: 0; }
+    form label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: #9ab6be; }
+    form input { width: 84px; padding: 7px 8px; border-radius: 8px; border: 1px solid rgba(136,236,208,.3); background: rgba(0,0,0,.28); color: #ecfcf7; font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+    form input:focus { outline: none; border-color: #7ce3cc; }
+    form small { color: #7f9aa1; font-size: 10.5px; line-height: 1.45; }
+    .err { color: #ff9f9f; font-size: 11px; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    button { flex: 1; cursor: pointer; border: 1px solid rgba(136,236,208,.35); border-radius: 10px; color: #def9f3; background: rgba(49,133,116,.28); font-size: 12px; font-weight: 650; min-height: 36px; white-space: nowrap; }
+    button:hover, button:focus-visible { background: rgba(66,172,144,.56); outline: none; }
+    .toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9ab6be; margin: 0 0 12px; cursor: pointer; }
+    .toggle input { accent-color: #42ac90; }
+    .cams button { flex: 1 1 calc(50% - 4px); }
+    .footer { position: fixed; bottom: 22px; left: 24px; right: 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; color: #9abdc0; font-size: 12px; pointer-events: none; }
+    .pill { border: 1px solid rgba(144,211,190,.2); padding: 8px 12px; background: rgba(5,24,33,.69); border-radius: 99px; }
+    .status { color: #88edc9; }
+    .tag { padding: 3px 7px; border-radius: 7px; font-size: 11px; font-weight: 700; white-space: nowrap; color: #071721; background: #ffe08a; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+    .dim { padding: 2px 6px; border-radius: 6px; font-size: 10.5px; font-weight: 650; white-space: nowrap; color: #ffe9b0; background: rgba(20,20,10,.7); border: 1px solid rgba(255,214,120,.45); font-variant-numeric: tabular-nums; }
+    .axis { color: #8fb3b8; font-size: 11px; font-weight: 700; letter-spacing: .05em; opacity: .8; }
+    @media (max-width: 700px) {
+      .header { left: 15px; top: 14px; }
+      .subtitle { display: none; }
+      .panel { top: auto; right: 12px; bottom: 72px; width: min(250px, 70vw); max-height: calc(100vh - 150px); padding: 12px; }
+      .footer { left: 15px; right: 15px; bottom: 12px; font-size: 10px; }
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <header class="header">
+    <p class="eyebrow">REAL-TIME 3D REVIEW / CAMERA RIG</p>
+    <h1>Tripod Setup</h1>
+    <div class="subtitle">Four camera tripods, one off each corner of the court</div>
+  </header>
+  <aside class="panel">
+    <div class="section">
+      <p class="panel-title">Tripod placement</p>
+      <form id="rigForm">
+        <label>Distance (m) <input id="inDist" type="number" step="0.05" min="0" max="5" value="1.20" required /></label>
+        <label>Height (m) <input id="inHeight" type="number" step="0.05" min="0.5" max="3" value="1.20" required /></label>
+        <label>Angle (°) <input id="inAngle" type="number" step="1" min="0" max="90" value="45" required /></label>
+        <small>Distance: from the court corner, outward along the diagonal.<br />Height: floor to camera lens.<br />Angle: camera direction measured from the back boundary line, facing into the court.</small>
+        <button type="submit">Apply</button>
+        <div class="err" id="rigErr"></div>
+      </form>
+    </div>
+    <div class="section">
+      <p class="panel-title">View</p>
+      <label class="toggle"><input type="checkbox" id="fovToggle" checked /> Show camera field of view</label>
+      <div class="buttons"><button type="button" id="iso">3D View</button><button type="button" id="top">Top View</button></div>
+      <div class="buttons cams" style="margin-top:8px">
+        <button type="button" data-cam="0">Cam 1</button><button type="button" data-cam="1">Cam 2</button>
+        <button type="button" data-cam="2">Cam 3</button><button type="button" data-cam="3">Cam 4</button>
+      </div>
+    </div>
+  </aside>
+  <div class="footer"><span class="pill">Drag to rotate &nbsp; · &nbsp; Scroll to zoom &nbsp; · &nbsp; Right-drag to pan</span><span class="status" id="status">● 4 tripods placed</span></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+    // Same conventions as index.html: 1 unit = 1 metre, X = width, Y = height,
+    // Z = length, net centre at (0, 0, 0).
+    const WIDTH = 6.10;
+    const LENGTH = 13.40;
+    const SINGLES_WIDTH = 5.18;
+    const HALF_W = WIDTH / 2;
+    const HALF_L = LENGTH / 2;
+    const LINE = 0.04;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x071823);
+    scene.fog = new THREE.FogExp2(0x071823, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.05, 120);
+    camera.position.set(10, 12.5, 17);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('app').appendChild(renderer.domElement);
+
+    const labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(innerWidth, innerHeight);
+    Object.assign(labelRenderer.domElement.style, { position: 'fixed', top: '0', left: '0', pointerEvents: 'none' });
+    document.getElementById('app').appendChild(labelRenderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(0, 0.55, 0);
+    controls.minDistance = 2;
+    controls.maxDistance = 48;
+    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.update();
+
+    const hemi = new THREE.HemisphereLight(0xbcefff, 0x163e38, 2.6);
+    scene.add(hemi);
+    const keyLight = new THREE.DirectionalLight(0xfff9e8, 3.0);
+    keyLight.position.set(-7, 17, 9);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.left = -18;
+    keyLight.shadow.camera.right = 18;
+    keyLight.shadow.camera.top = 18;
+    keyLight.shadow.camera.bottom = -18;
+    keyLight.shadow.bias = -0.0002;
+    scene.add(keyLight);
+
+    // ---- Court (same as index.html) ------------------------------------
+    const outerFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 33),
+      new THREE.MeshStandardMaterial({ color: 0x152d35, roughness: 0.9, metalness: 0.0 })
+    );
+    outerFloor.rotation.x = -Math.PI / 2;
+    outerFloor.position.y = -0.025;
+    outerFloor.receiveShadow = true;
+    scene.add(outerFloor);
+
+    const border = new THREE.Mesh(
+      new THREE.BoxGeometry(WIDTH + 1.1, 0.045, LENGTH + 1.1),
+      new THREE.MeshStandardMaterial({ color: 0x0c5762, roughness: 0.94 })
+    );
+    border.receiveShadow = true;
+    scene.add(border);
+
+    const court = new THREE.Mesh(
+      new THREE.BoxGeometry(WIDTH, 0.025, LENGTH),
+      new THREE.MeshStandardMaterial({ color: 0x15977e, roughness: 0.89, metalness: 0.02 })
+    );
+    court.position.y = 0.035;
+    court.receiveShadow = true;
+    scene.add(court);
+
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0xf4fbec, emissive: 0x1b2422, roughness: 0.5 });
+    const LINE_Y = 0.053;
+    function lineX(z, fromX = -HALF_W, toX = HALF_W) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(toX - fromX, 0.005, LINE), lineMat);
+      line.position.set((fromX + toX) / 2, LINE_Y, z);
+      scene.add(line);
+    }
+    function lineZ(x, fromZ = -HALF_L, toZ = HALF_L) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(LINE, 0.005, toZ - fromZ), lineMat);
+      line.position.set(x, LINE_Y, (fromZ + toZ) / 2);
+      scene.add(line);
+    }
+    lineZ(-HALF_W); lineZ(HALF_W);
+    lineX(-HALF_L); lineX(HALF_L);
+    lineZ(-SINGLES_WIDTH / 2); lineZ(SINGLES_WIDTH / 2);
+    lineX(-1.98); lineX(1.98);
+    lineX(-HALF_L + 0.76); lineX(HALF_L - 0.76);
+    lineZ(0, -HALF_L, -1.98);
+    lineZ(0, 1.98, HALF_L);
+
+    const netHeight = x => 1.524 + (1.55 - 1.524) * Math.pow(Math.abs(x) / HALF_W, 1.6);
+    const netPoints = [];
+    for (let x = -HALF_W; x <= HALF_W + 0.001; x += 0.10) {
+      const xx = Math.min(x, HALF_W);
+      netPoints.push(xx, 0.12, 0, xx, netHeight(xx) - 0.035, 0);
+    }
+    for (let y = 0.12; y <= 1.50; y += 0.10) netPoints.push(-HALF_W, y, 0, HALF_W, y, 0);
+    const netGeo = new THREE.BufferGeometry();
+    netGeo.setAttribute('position', new THREE.Float32BufferAttribute(netPoints, 3));
+    scene.add(new THREE.LineSegments(netGeo,
+      new THREE.LineBasicMaterial({ color: 0xddece9, transparent: true, opacity: 0.50, depthWrite: false })));
+
+    const tapePts = [];
+    for (let i = 0; i <= 64; i++) {
+      const x = -HALF_W + WIDTH * i / 64;
+      tapePts.push(new THREE.Vector3(x, netHeight(x), 0));
+    }
+    scene.add(new THREE.Mesh(
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tapePts), 64, 0.020, 6, false),
+      new THREE.MeshStandardMaterial({ color: 0xf4fcf8, roughness: 0.48 })
+    ));
+    for (const x of [-HALF_W, HALF_W]) {
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.029, 0.035, 1.55, 12),
+        new THREE.MeshStandardMaterial({ color: 0x152a30, metalness: 0.42, roughness: 0.4 })
+      );
+      post.position.set(x, 1.55 / 2, 0);
+      post.castShadow = true;
+      scene.add(post);
+    }
+
+    function label(text, cls, pos, parent = scene) {
+      const el = document.createElement('div');
+      el.className = cls;
+      el.textContent = text;
+      const obj = new CSS2DObject(el);
+      obj.position.copy(pos);
+      parent.add(obj);
+      return obj;
+    }
+    label('+X', 'axis', new THREE.Vector3(HALF_W + 0.9, 0.1, 0));
+    label('−X', 'axis', new THREE.Vector3(-HALF_W - 0.9, 0.1, 0));
+    label('+Z', 'axis', new THREE.Vector3(0, 0.1, HALF_L + 0.9));
+    label('−Z', 'axis', new THREE.Vector3(0, 0.1, -HALF_L - 0.9));
+
+    // ---- Tripods --------------------------------------------------------
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x1c1f22, metalness: 0.6, roughness: 0.35 });
+    const jointMat = new THREE.MeshStandardMaterial({ color: 0x3a3f44, metalness: 0.5, roughness: 0.4 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x24282c, metalness: 0.2, roughness: 0.5 });
+    const lensMat = new THREE.MeshStandardMaterial({ color: 0x0b0d0f, metalness: 0.4, roughness: 0.25 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x3b7bd6, emissive: 0x0d2a55, metalness: 0.6, roughness: 0.1 });
+    const dimMat = new THREE.LineDashedMaterial({ color: 0xffd36e, dashSize: 0.08, gapSize: 0.05, depthTest: false, transparent: true });
+    const fovMat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false });
+    const fovEdgeMat = new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.35 });
+    const UP = new THREE.Vector3(0, 1, 0);
+    const fovToggle = document.getElementById('fovToggle');
+    fovToggle.addEventListener('change', () => {
+      rig.traverse(o => { if (o.name === 'fov') o.visible = fovToggle.checked; });
+    });
+
+    function rod(a, b, radius, mat) {
+      const len = a.distanceTo(b);
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 10), mat);
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
+      m.castShadow = true;
+      return m;
+    }
+
+    function dashed(points) {
+      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), dimMat);
+      l.computeLineDistances();
+      l.renderOrder = 10;
+      return l;
+    }
+
+    // Builds one tripod in local space: origin on the floor under the lens,
+    // camera looking down local -Z. `h` = floor-to-lens height.
+    function buildTripod(h) {
+      const g = new THREE.Group();
+      const headY = h - 0.1;              // where the legs meet
+      const spread = 0.38 * (h / 1.2);
+      const head = new THREE.Vector3(0, headY, 0);
+      for (let i = 0; i < 3; i++) {
+        const a = Math.PI / 2 + i * (Math.PI * 2 / 3);
+        const foot = new THREE.Vector3(Math.cos(a) * spread, 0, Math.sin(a) * spread);
+        g.add(rod(head, foot, 0.012, legMat));
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), jointMat);
+        tip.position.copy(foot).setY(0.012);
+        g.add(tip);
+      }
+      g.add(rod(new THREE.Vector3(0, headY - 0.35, 0), new THREE.Vector3(0, headY, 0), 0.014, jointMat));
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.04, 16), jointMat);
+      hub.position.y = headY;
+      g.add(hub);
+      const panHead = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.06), jointMat);
+      panHead.position.y = headY + 0.035;
+      g.add(panHead);
+      const handle = rod(new THREE.Vector3(0, headY + 0.03, 0.02), new THREE.Vector3(0.0, headY - 0.02, 0.22), 0.007, legMat);
+      g.add(handle);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.09, 0.1), bodyMat);
+      body.position.set(0, h, 0.01);
+      body.castShadow = true;
+      g.add(body);
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.036, 0.08, 20), lensMat);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(0, h, -0.08);
+      g.add(lens);
+      const glass = new THREE.Mesh(new THREE.CircleGeometry(0.028, 20), glassMat);
+      glass.rotation.y = Math.PI;
+      glass.position.set(0, h, -0.121);
+      g.add(glass);
+
+      // Field-of-view pyramid (illustrative 60° x 38°, 5 m deep).
+      const far = 4, hw = far * Math.tan(THREE.MathUtils.degToRad(30)), hh = far * Math.tan(THREE.MathUtils.degToRad(19));
+      const o = new THREE.Vector3(0, h, -0.12);
+      const c = [[-hw, hh], [hw, hh], [hw, -hh], [-hw, -hh]].map(([x, y]) => new THREE.Vector3(x, h + y, -far));
+      const pos = [];
+      for (let i = 0; i < 4; i++) { const a = c[i], b = c[(i + 1) % 4]; pos.push(o.x, o.y, o.z, a.x, a.y, a.z, b.x, b.y, b.z); }
+      const fovGeo = new THREE.BufferGeometry();
+      fovGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const fov = new THREE.Group();
+      fov.name = 'fov';
+      fov.add(new THREE.Mesh(fovGeo, fovMat));
+      const edges = [];
+      for (let i = 0; i < 4; i++) edges.push(o, c[i], c[i], c[(i + 1) % 4]);
+      fov.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edges), fovEdgeMat));
+      fov.visible = fovToggle.checked;
+      g.add(fov);
+      return g;
+    }
+
+    const rig = new THREE.Group();
+    scene.add(rig);
+    let tripods = [];   // { lens: Vector3, dir: Vector3 } per camera, for the Cam views
+
+    function disposeTree(obj) {
+      obj.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    }
+
+    function buildRig(dist, h, angleDeg) {
+      for (const child of [...rig.children]) { rig.remove(child); disposeTree(child); }
+      tripods = [];
+      const a = THREE.MathUtils.degToRad(angleDeg);
+      const off = dist / Math.SQRT2;   // diagonal offset along each axis
+      // Corners in order: Cam 1 (−X,−Z), Cam 2 (+X,−Z), Cam 3 (+X,+Z), Cam 4 (−X,+Z).
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+      corners.forEach(([sx, sz], i) => {
+        const corner = new THREE.Vector3(sx * HALF_W, 0, sz * HALF_L);
+        const base = new THREE.Vector3(sx * (HALF_W + off), 0, sz * (HALF_L + off));
+        // Facing into the court; `a` measured from the back boundary line (X axis).
+        const dir = new THREE.Vector3(-sx * Math.cos(a), 0, -sz * Math.sin(a));
+
+        const t = buildTripod(h);
+        t.position.copy(base);
+        t.rotation.y = Math.atan2(-dir.x, -dir.z);
+        rig.add(t);
+        label(`Cam ${i + 1}`, 'tag', new THREE.Vector3(0, h + 0.22, 0), t);
+
+        // Distance: court corner -> tripod.
+        const y = 0.07;
+        rig.add(dashed([corner.clone().setY(y), base.clone().setY(y)]));
+        label(`${dist.toFixed(2)} m`, 'dim', corner.clone().lerp(base, 0.5).setY(y + 0.08), rig);
+
+        // Height: floor -> lens, drawn beside the tripod.
+        const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(-0.35 * sx * sz);
+        const hx = base.clone().add(side);
+        rig.add(dashed([hx.clone().setY(0.02), hx.clone().setY(h)]));
+        rig.add(dashed([hx.clone().setY(h), base.clone().setY(h)]));
+        label(`${h.toFixed(2)} m`, 'dim', hx.clone().setY(h / 2), rig);
+
+        // Angle arc between the back-boundary direction and the camera direction.
+        const r = 0.55, arc = [];
+        const start = Math.atan2(0, -sx);           // direction (-sx, 0, 0)
+        const end = Math.atan2(dir.z, dir.x);
+        let delta = end - start;
+        if (delta > Math.PI) delta -= Math.PI * 2;
+        if (delta < -Math.PI) delta += Math.PI * 2;
+        for (let k = 0; k <= 24; k++) {
+          const th = start + delta * k / 24;
+          arc.push(new THREE.Vector3(base.x + Math.cos(th) * r, 0.07, base.z + Math.sin(th) * r));
+        }
+        rig.add(dashed([base.clone().setY(0.07), new THREE.Vector3(base.x - sx * (r + 0.25), 0.07, base.z)]));
+        rig.add(dashed([base.clone().setY(0.07), base.clone().addScaledVector(dir, r + 0.25).setY(0.07)]));
+        rig.add(dashed(arc));
+        const mid = start + delta / 2;
+        label(`${angleDeg}°`, 'dim', new THREE.Vector3(base.x + Math.cos(mid) * (r + 0.3), 0.1, base.z + Math.sin(mid) * (r + 0.3)), rig);
+
+        tripods.push({ lens: base.clone().setY(h).addScaledVector(dir, 0.15), dir });
+      });
+    }
+
+    // ---- Controls / views ----------------------------------------------
+    const desiredPos = new THREE.Vector3(10, 12.5, 17);
+    const desiredTarget = new THREE.Vector3(0, 0.55, 0);
+    let movingCamera = false;
+    function setCamera(x, y, z, tx = 0, ty = 0.55, tz = 0) {
+      desiredPos.set(x, y, z);
+      desiredTarget.set(tx, ty, tz);
+      movingCamera = true;
+    }
+    document.getElementById('iso').addEventListener('click', () => setCamera(10, 12.5, 17));
+    document.getElementById('top').addEventListener('click', () => setCamera(0.01, 24, 0.001, 0, 0, 0));
+    document.querySelectorAll('[data-cam]').forEach(btn => btn.addEventListener('click', () => {
+      const t = tripods[Number(btn.dataset.cam)];
+      const target = t.lens.clone().addScaledVector(t.dir, 8).setY(0.4);
+      setCamera(t.lens.x, t.lens.y, t.lens.z, target.x, target.y, target.z);
+    }));
+    controls.addEventListener('start', () => { movingCamera = false; });
+
+    const statusEl = document.getElementById('status');
+    const rigErr = document.getElementById('rigErr');
+    document.getElementById('rigForm').addEventListener('submit', ev => {
+      ev.preventDefault();
+      const dist = parseFloat(document.getElementById('inDist').value);
+      const h = parseFloat(document.getElementById('inHeight').value);
+      const ang = parseFloat(document.getElementById('inAngle').value);
+      if (![dist, h, ang].every(Number.isFinite) || dist < 0 || dist > 5 || h < 0.5 || h > 3 || ang < 0 || ang > 90) {
+        rigErr.textContent = 'Distance 0–5 m, height 0.5–3 m, angle 0–90°.';
+        return;
+      }
+      rigErr.textContent = '';
+      buildRig(dist, h, ang);
+      statusEl.textContent = `● 4 tripods · ${dist.toFixed(2)} m out · ${h.toFixed(2)} m high · ${ang}°`;
+    });
+
+    buildRig(1.2, 1.2, 45);
+    statusEl.textContent = '● 4 tripods · 1.20 m out · 1.20 m high · 45°';
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (movingCamera) {
+        camera.position.lerp(desiredPos, 0.095);
+        controls.target.lerp(desiredTarget, 0.095);
+        if (camera.position.distanceTo(desiredPos) < 0.01 && controls.target.distanceTo(desiredTarget) < 0.01) {
+          camera.position.copy(desiredPos);
+          controls.target.copy(desiredTarget);
+          movingCamera = false;
+        }
+      }
+      controls.update();
+      renderer.render(scene, camera);
+      labelRenderer.render(scene, camera);
+    }
+    animate();
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      labelRenderer.setSize(innerWidth, innerHeight);
+    });
+  </script>
+</body>
+</html>
