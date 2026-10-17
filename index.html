@@ -43,8 +43,8 @@
     .result strong { font-variant-numeric: tabular-nums; }
     .in { color: #7cf0b8; } .out { color: #ff8f7a; }
     .ghost { margin-top: 10px; width: 100%; background: transparent; }
-    .tag { padding: 4px 8px; border-radius: 8px; font-size: 11px; font-weight: 650; white-space: nowrap; color: #071721; background: #e9fff7; box-shadow: 0 4px 14px rgba(0,0,0,.35); font-variant-numeric: tabular-nums; }
-    .tag.out { background: #ffd3c9; }
+    .land-tag { padding: 4px 8px; border-radius: 8px; font-size: 11px; font-weight: 650; white-space: nowrap; color: #071721; background: #e9fff7; box-shadow: 0 4px 14px rgba(0,0,0,.35); font-variant-numeric: tabular-nums; }
+    .land-tag.out { background: #ffd3c9; }
     .axis { color: #8fb3b8; font-size: 11px; font-weight: 700; letter-spacing: .05em; opacity: .8; }
     #error { display: none; position: fixed; bottom: 85px; left: 24px; right: 24px; max-width: 560px; white-space: pre-wrap; color: #ffd9d9; background: rgba(110,28,35,.9); border: 1px solid #e17272; border-radius: 12px; padding: 15px; font-size: 13px; }
     @media (max-width: 700px) {
@@ -74,28 +74,7 @@
     <div class="subtitle">A reusable, full-scale 3D scene for landing-point visualization</div>
   </header>
   <aside class="panel">
-    <div class="section">
-      <p class="panel-title">Shuttle drop</p>
-      <div class="seg" role="tablist">
-        <button type="button" id="modePoint" class="active" aria-pressed="true">Point</button>
-        <button type="button" id="modeCoord" aria-pressed="false">Co-ordinates</button>
-      </div>
-      <p class="hint" id="pointHint">Click anywhere on the court to drop a shuttle there.</p>
-      <form id="coordForm" hidden>
-        <label>X (width, m) <input id="inX" type="number" step="0.01" value="1.20" required /></label>
-        <label>Z (length, m) <input id="inZ" type="number" step="0.01" value="-4.50" required /></label>
-        <small>Origin (0, 0) = net centre.<br />X: −3.05 … 3.05 &nbsp;·&nbsp; Z: −6.70 … 6.70</small>
-        <button type="submit">Drop shuttle</button>
-        <div class="err" id="coordErr"></div>
-      </form>
-      <div class="result" id="result" hidden>
-        <div><span>Landing X</span><strong id="rX">–</strong></div>
-        <div><span>Landing Z</span><strong id="rZ">–</strong></div>
-        <div><span>Doubles</span><strong id="rD">–</strong></div>
-        <div><span>Singles</span><strong id="rS">–</strong></div>
-      </div>
-      <button type="button" class="ghost" id="clear">Clear marks</button>
-    </div>
+    <div class="section" id="dropPanel"></div>
     <div class="section dims">
       <p class="panel-title">Court dimensions</p>
       <div class="metric"><span>Length</span><strong>13.40 m</strong></div>
@@ -111,6 +90,7 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+    import { setupShuttleDrop } from './shuttle.js';
 
     // 1 scene unit = 1 metre. Coordinates: X = width, Y = height, Z = length.
     // The court centre / net is (0, 0, 0). This stays consistent in later steps.
@@ -263,17 +243,6 @@
     document.getElementById('top').addEventListener('click', () => setCamera(0.01, 21, 0.001, 0, 0, 0));
     controls.addEventListener('start', () => { movingCamera = false; });
 
-    // ---------------------------------------------------------------------
-    // Step 2: shuttle drop. Landing points use court metres with the net
-    // centre as origin: X across the width, Z along the length.
-    // ---------------------------------------------------------------------
-    const LAND_Y = 0.056;            // just above the painted lines
-    const SHUTTLE_SCALE = 3;         // a real shuttle (~8.5 cm) is too small to see from the camera
-    const CORK_R = 0.0125 * SHUTTLE_SCALE;
-    const REGION_X = HALF_W + 0.55;  // clickable/droppable area = court + coloured border
-    const REGION_Z = HALF_L + 0.55;
-    const UP = new THREE.Vector3(0, 1, 0);
-
     function axisLabel(text, x, z) {
       const el = document.createElement('div');
       el.className = 'axis';
@@ -285,301 +254,17 @@
     axisLabel('+X', HALF_W + 0.9, 0); axisLabel('−X', -HALF_W - 0.9, 0);
     axisLabel('+Z', 0, HALF_L + 0.9); axisLabel('−Z', 0, -HALF_L - 0.9);
 
-    // Shuttle model, origin at the bottom of the cork, skirt pointing +Y.
-    const shuttle = new THREE.Group();
-    {
-      const r = 0.0125;
-      const cork = new THREE.Mesh(
-        new THREE.SphereGeometry(r, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
-        new THREE.MeshStandardMaterial({ color: 0xe9dcc0, roughness: 0.7 })
-      );
-      cork.position.y = r;
-      const band = new THREE.Mesh(
-        new THREE.CylinderGeometry(r, r, 0.007, 20),
-        new THREE.MeshStandardMaterial({ color: 0x1f8f74, roughness: 0.5 })
-      );
-      band.position.y = r + 0.0035;
-      const featherMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
-      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.013, 0.07, 28, 1, true), featherMat);
-      skirt.position.y = r + 0.007 + 0.035;
-      const threadMat = new THREE.MeshStandardMaterial({ color: 0xcfd8d4, roughness: 0.6 });
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.034, 0.0012, 6, 32), threadMat);
-      rim.rotation.x = Math.PI / 2;
-      rim.position.y = r + 0.007 + 0.07;
-      const thread = new THREE.Mesh(new THREE.TorusGeometry(0.0235, 0.0009, 6, 32), threadMat);
-      thread.rotation.x = Math.PI / 2;
-      thread.position.y = r + 0.007 + 0.035;
-      for (const m of [cork, band, skirt, rim, thread]) { m.castShadow = true; shuttle.add(m); }
-    }
-    shuttle.scale.setScalar(SHUTTLE_SCALE);
-    shuttle.visible = false;
-    scene.add(shuttle);
-
-    // Hover preview ring for Point mode.
-    const hoverRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.1, 0.13, 40),
-      new THREE.MeshBasicMaterial({ color: 0xbff7e6, transparent: true, opacity: 0.55, depthWrite: false })
-    );
-    hoverRing.rotation.x = -Math.PI / 2;
-    hoverRing.position.y = LAND_Y + 0.003;
-    hoverRing.visible = false;
-    scene.add(hoverRing);
-
-    const IN_COLOR = 0x5ff0b0, OUT_COLOR = 0xff7a5f;
-    const markers = [];   // persistent landing marks
-    const ripples = [];   // short-lived impact rings
-    let landingTag = null;
-
-    function judge(x, z) {
-      const inLength = Math.abs(z) <= HALF_L;   // lines count as in
-      return {
-        doubles: inLength && Math.abs(x) <= HALF_W,
-        singles: inLength && Math.abs(x) <= SINGLES_WIDTH / 2,
-      };
-    }
-
-    function addMarker(x, z, isIn) {
-      for (const m of markers) m.traverse(o => { if (o.material) o.material.opacity *= 0.6; });
-      const color = isIn ? IN_COLOR : OUT_COLOR;
-      const g = new THREE.Group();
-      const dot = new THREE.Mesh(new THREE.CircleGeometry(0.09, 32),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false }));
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.2, 48),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }));
-      dot.rotation.x = ring.rotation.x = -Math.PI / 2;
-      g.add(dot, ring);
-      g.position.set(x, LAND_Y + 0.002, z);
-      scene.add(g);
-      markers.push(g);
-    }
-
-    function addRipple(x, z, color, delay) {
-      const mesh = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false }));
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(x, LAND_Y + 0.004, z);
-      scene.add(mesh);
-      ripples.push({ mesh, born: performance.now() + delay });
-    }
-
-    function setTag(x, z, res) {
-      if (landingTag) { scene.remove(landingTag); landingTag.element.remove(); }
-      const el = document.createElement('div');
-      el.className = 'tag' + (res.doubles ? '' : ' out');
-      el.textContent = `(${x.toFixed(2)}, ${z.toFixed(2)}) · ${res.doubles ? 'IN' : 'OUT'}`;
-      landingTag = new CSS2DObject(el);
-      landingTag.position.set(x, 0.55, z);
-      scene.add(landingTag);
-    }
-
-    const ui = {
-      result: document.getElementById('result'),
-      rX: document.getElementById('rX'), rZ: document.getElementById('rZ'),
-      rD: document.getElementById('rD'), rS: document.getElementById('rS'),
-      status: document.getElementById('status'),
-    };
-    function showResult(x, z, res) {
-      ui.result.hidden = false;
-      ui.rX.textContent = `${x.toFixed(2)} m`;
-      ui.rZ.textContent = `${z.toFixed(2)} m`;
-      ui.rD.textContent = res.doubles ? 'IN' : 'OUT';
-      ui.rD.className = res.doubles ? 'in' : 'out';
-      ui.rS.textContent = res.singles ? 'IN' : 'OUT';
-      ui.rS.className = res.singles ? 'in' : 'out';
-      ui.status.textContent = `● Shuttle landed at (${x.toFixed(2)}, ${z.toFixed(2)}) — ${res.doubles ? 'IN' : 'OUT'}`;
-    }
-
-    // Flight timeline (seconds): fall, two small bounces, then settle on its side.
-    const FALL_T = 1.15, B1_T = 0.34, B2_T = 0.2, SETTLE_T = 0.3;
-    const B1_H = 0.22, B2_H = 0.07;
-    let drop = null;
-
-    function dropAt(x, z) {
-      const landing = new THREE.Vector3(x, LAND_Y, z);
-      // The shuttle comes from high on the far side of the landing point, towards the net.
-      const towardNet = z >= 0 ? -1 : 1;
-      const start = new THREE.Vector3(x * 0.45, 3.8, z + towardNet * 3.4);
-      const dir = landing.clone().sub(start).setY(0).normalize();
-      const b1 = landing.clone().addScaledVector(dir, 0.2);
-      const b2 = b1.clone().addScaledVector(dir, 0.08);
-      // Resting pose: lying on its side, skirt trailing back along the flight path.
-      const restAxis = new THREE.Vector3(0, Math.cos(1.2), 0).addScaledVector(dir, -Math.sin(1.2)).normalize();
-      drop = {
-        t0: performance.now(), start, landing, b1, b2, dir,
-        restQ: new THREE.Quaternion().setFromUnitVectors(UP, restAxis),
-        landQ: null, landed: false, res: judge(x, z),
-      };
-      shuttle.visible = true;
-      ui.status.textContent = '● Shuttle in flight…';
-    }
-
-    function fallPos(u, out) {
-      const p = 1 - (1 - u) * (1 - u);                  // horizontal speed bleeds off (drag)
-      out.lerpVectors(drop.start, drop.landing, p);
-      out.y = LAND_Y + (drop.start.y - LAND_Y) * (1 - u * u);  // accelerates downward
-      return out;
-    }
-
-    const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _axis = new THREE.Vector3(), _q = new THREE.Quaternion();
-    function placeShuttle(pos, quat) {
-      shuttle.quaternion.copy(quat);
-      // Lift so the tilted cork never sinks into the floor.
-      const cos = _axis.copy(UP).applyQuaternion(quat).y;
-      shuttle.position.copy(pos);
-      shuttle.position.y += CORK_R * (1 - cos);
-    }
-
-    function updateDrop(now) {
-      if (!drop) return;
-      const t = (now - drop.t0) / 1000;
-      if (t < FALL_T) {
-        const u = t / FALL_T;
-        fallPos(u, _a);
-        fallPos(Math.min(u + 0.01, 1), _b);
-        // Cork leads: the skirt axis points opposite to the velocity.
-        _b.subVectors(_a, _b).normalize();
-        _q.setFromUnitVectors(UP, _b);
-        placeShuttle(_a, _q);
-        return;
-      }
-      if (!drop.landed) {
-        drop.landed = true;
-        drop.landQ = shuttle.quaternion.clone();
-        const { x, z } = drop.landing;
-        const color = drop.res.doubles ? IN_COLOR : OUT_COLOR;
-        addMarker(x, z, drop.res.doubles);
-        addRipple(x, z, color, 0);
-        addRipple(x, z, color, 180);
-        setTag(x, z, drop.res);
-        showResult(x, z, drop.res);
-      }
-      const tb = t - FALL_T;
-      const total = B1_T + B2_T + SETTLE_T;
-      const k = Math.min(tb / total, 1);
-      _q.slerpQuaternions(drop.landQ, drop.restQ, 1 - (1 - k) * (1 - k));
-      if (tb < B1_T) {
-        const u = tb / B1_T;
-        _a.lerpVectors(drop.landing, drop.b1, u);
-        _a.y = LAND_Y + B1_H * 4 * u * (1 - u);
-      } else if (tb < B1_T + B2_T) {
-        const u = (tb - B1_T) / B2_T;
-        _a.lerpVectors(drop.b1, drop.b2, u);
-        _a.y = LAND_Y + B2_H * 4 * u * (1 - u);
-      } else {
-        _a.copy(drop.b2);
-      }
-      placeShuttle(_a, _q);
-      if (k >= 1) drop = null;   // at rest; leave it lying on the court
-    }
-
-    function updateRipples(now) {
-      for (let i = ripples.length - 1; i >= 0; i--) {
-        const r = ripples[i];
-        const u = (now - r.born) / 900;
-        if (u < 0) continue;
-        if (u >= 1) {
-          scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mesh.material.dispose();
-          ripples.splice(i, 1);
-          continue;
-        }
-        const s = 0.08 + 0.62 * (1 - (1 - u) ** 3);
-        r.mesh.scale.set(s, s, 1);
-        r.mesh.material.opacity = 0.9 * (1 - u);
-      }
-    }
-
-    document.getElementById('clear').addEventListener('click', () => {
-      for (const m of markers) {
-        scene.remove(m);
-        m.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
-      }
-      markers.length = 0;
-      if (landingTag) { scene.remove(landingTag); landingTag.element.remove(); landingTag = null; }
-      drop = null;
-      shuttle.visible = false;
-      ui.result.hidden = true;
-      ui.status.textContent = '● Scene ready';
-    });
-
-    // --- Mode switching -------------------------------------------------
-    let mode = 'point';
-    const modeBtns = { point: document.getElementById('modePoint'), coord: document.getElementById('modeCoord') };
-    const pointHint = document.getElementById('pointHint');
-    const coordForm = document.getElementById('coordForm');
-    function setMode(m) {
-      mode = m;
-      for (const [k, b] of Object.entries(modeBtns)) {
-        b.classList.toggle('active', k === m);
-        b.setAttribute('aria-pressed', String(k === m));
-      }
-      pointHint.hidden = m !== 'point';
-      coordForm.hidden = m !== 'coord';
-      hoverRing.visible = false;
-      renderer.domElement.style.cursor = '';
-      if (m === 'coord') document.getElementById('inX').focus();
-    }
-    modeBtns.point.addEventListener('click', () => setMode('point'));
-    modeBtns.coord.addEventListener('click', () => setMode('coord'));
-
-    // --- Point mode: click on the court ----------------------------------
-    const raycaster = new THREE.Raycaster();
-    const floorPlane = new THREE.Plane(UP, -LAND_Y);
-    const ndc = new THREE.Vector2();
-    function pickCourt(ev) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      ndc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
-      raycaster.setFromCamera(ndc, camera);
-      const hit = raycaster.ray.intersectPlane(floorPlane, new THREE.Vector3());
-      if (!hit || Math.abs(hit.x) > REGION_X || Math.abs(hit.z) > REGION_Z) return null;
-      return hit;
-    }
-
-    let downAt = null;
-    renderer.domElement.addEventListener('pointerdown', ev => {
-      downAt = ev.button === 0 ? { x: ev.clientX, y: ev.clientY, t: performance.now() } : null;
-    });
-    renderer.domElement.addEventListener('pointerup', ev => {
-      if (mode !== 'point' || !downAt || ev.button !== 0) return;
-      // Treat as a click only if the pointer barely moved (otherwise it was an orbit drag).
-      const moved = Math.hypot(ev.clientX - downAt.x, ev.clientY - downAt.y);
-      const quick = performance.now() - downAt.t < 600;
-      downAt = null;
-      if (moved > 6 || !quick) return;
-      const hit = pickCourt(ev);
-      if (hit) dropAt(hit.x, hit.z);
-    });
-    renderer.domElement.addEventListener('pointermove', ev => {
-      if (mode !== 'point' || ev.buttons) { hoverRing.visible = false; return; }
-      const hit = pickCourt(ev);
-      hoverRing.visible = !!hit;
-      renderer.domElement.style.cursor = hit ? 'crosshair' : '';
-      if (hit) hoverRing.position.set(hit.x, LAND_Y + 0.003, hit.z);
-    });
-    renderer.domElement.addEventListener('pointerleave', () => { hoverRing.visible = false; });
-
-    // --- Co-ordinates mode -----------------------------------------------
-    const coordErr = document.getElementById('coordErr');
-    coordForm.addEventListener('submit', ev => {
-      ev.preventDefault();
-      const x = parseFloat(document.getElementById('inX').value);
-      const z = parseFloat(document.getElementById('inZ').value);
-      if (!Number.isFinite(x) || !Number.isFinite(z)) {
-        coordErr.textContent = 'Enter numeric X and Z values.';
-        return;
-      }
-      if (Math.abs(x) > REGION_X || Math.abs(z) > REGION_Z) {
-        coordErr.textContent = `Out of range. Max |X| ${REGION_X.toFixed(2)}, |Z| ${REGION_Z.toFixed(2)}.`;
-        return;
-      }
-      coordErr.textContent = '';
-      dropAt(x, z);
+    // Step 2: shuttle drop (shared with tripods.html).
+    const statusEl = document.getElementById('status');
+    const shuttleDrop = setupShuttleDrop({
+      scene, camera, renderer,
+      panelEl: document.getElementById('dropPanel'),
+      onStatus: text => { statusEl.textContent = text ?? '● Scene ready'; },
     });
 
     function animate() {
       requestAnimationFrame(animate);
-      const now = performance.now();
-      updateDrop(now);
-      updateRipples(now);
+      shuttleDrop.update(performance.now());
       if (movingCamera) {
         camera.position.lerp(desiredPos, 0.095);
         controls.target.lerp(desiredTarget, 0.095);

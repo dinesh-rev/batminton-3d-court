@@ -12,7 +12,8 @@ Mouse: left-drag rotates, mouse wheel zooms, right-drag pans.
 
 SHUTTLE DROP (panel at top right)
 - Point: click anywhere on the court (or its coloured border) and a shuttle
-  falls there, bounces twice and settles on its side. A ring marks the spot
+  drops onto that spot from low (0.30 m), gives a small bounce and settles
+  on its side. A ring marks the spot
   (green = IN, red = OUT) and a tag shows the co-ordinates.
 - Co-ordinates: type X and Z in metres and press "Drop shuttle".
   Origin (0, 0) is the centre of the net.
@@ -27,6 +28,17 @@ Visit: http://localhost:8000/tripods.html
 - Four camera tripods, one off each corner of the court.
 - Default: 1.20 m from the court corner (outward along the diagonal),
   camera lens 1.20 m above the floor, facing into the court at 45 degrees
-  to the back boundary line.
-- Distance, height and angle can be changed in the panel ("Apply").
-- Cam 1-4 buttons show the view from each camera's lens.
+  to the back boundary line, tilted 27 degrees down with a 75 degree lens, so the
+  near court corner and floor margin are at the bottom of the frame and the
+  far back line is still in view (25-29 degrees keeps both).
+- Distance, height, angle, tilt and lens FOV can be changed in the panel ("Apply").
+- The same Shuttle drop panel as the main page: click the court (also inside
+  a Cam view) or type co-ordinates.
+- Cam 1-4 buttons show the view from each camera's lens (same camera model
+  camera_link.py uses).
+
+CAMERA <-> CO-ORDINATE LINK (Python, no extra packages)
+  python3 camera_link.py point 1.20 -4.50   which cameras see (X, Z), at which pixel
+  python3 camera_link.py pixel 1 960 700    Cam 1 pixel -> court (X, Z)
+  python3 camera_link.py lines              line visibility + usable tilt range
+Options: --distance --height --angle --tilt --hfov --res W H --json
