@@ -9,7 +9,7 @@ const HALF_L = 13.40 / 2;
 const SINGLES_WIDTH = 5.18;
 
 const LAND_Y = 0.056;            // just above the painted lines
-const SHUTTLE_SCALE = 3;         // a real shuttle (~8.5 cm) is too small to see from the camera
+const SHUTTLE_SCALE = 1.5;       // a real shuttle (~8.5 cm) is hard to see from the camera
 const CORK_R = 0.0125 * SHUTTLE_SCALE;
 const REGION_X = HALF_W + 0.55;  // clickable/droppable area = court + coloured border
 const REGION_Z = HALF_L + 0.55;
@@ -246,10 +246,20 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
   let replay = null, lastFall = null;
 
   function playFall(fall) {
-    const pts = (fall.trajectory || []).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.t));
-    if (pts.length < 2) return false;
+    let pts = (fall.trajectory || []).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.t));
     let k = pts.findIndex(p => p.phase === 'contact');
     if (k < 0) k = pts.length - 1;
+    // Show the fall and its first small bump only: stop where the shuttle touches
+    // down again (it may roll or slide somewhere else after that - not shown).
+    const b = pts.findIndex((p, i) => i > k && p.phase === 'bounce');
+    if (b < 0) {
+      pts = pts.slice(0, k + 1);
+    } else {
+      let e = b;
+      while (e < pts.length - 1 && pts[e + 1].phase === 'bounce') e++;
+      pts = [...pts.slice(0, k + 1), ...pts.slice(b, e + 2)];
+    }
+    if (pts.length < 2) return false;
     const air = p => p.phase === 'flight' || p.phase === 'bounce';
     const pos = pts.map(p => new THREE.Vector3(p.x, air(p) ? Math.max(p.y, LAND_Y) : LAND_Y, p.z));
     trailGeo.setFromPoints(pos);

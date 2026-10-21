@@ -1,0 +1,76 @@
+{
+  "cam": 2,
+  "image_size": [
+    1280,
+    720
+  ],
+  "hfov": 75,
+  "points": [
+    {
+      "name": "court corner -X -Z (Cam 1 corner)",
+      "world": [
+        -3.05,
+        -6.7
+      ],
+      "pixel": [
+        17.8,
+        176.2
+      ]
+    },
+    {
+      "name": "court corner +X -Z (Cam 2 corner)",
+      "world": [
+        3.05,
+        -6.7
+      ],
+      "pixel": [
+        726.3,
+        84.6
+      ]
+    },
+    {
+      "name": "court corner +X +Z (Cam 3 corner)",
+      "world": [
+        3.05,
+        6.7
+      ],
+      "pixel": [
+        219.9,
+        297.3
+      ]
+    },
+    {
+      "name": "court corner -X +Z (Cam 4 corner)",
+      "world": [
+        -3.05,
+        6.7
+      ],
+      "pixel": [
+        899.0,
+        116.6
+      ]
+    },
+    {
+      "name": "net post foot -X",
+      "world": [
+        -3.05,
+        0.0
+      ],
+      "pixel": [
+        463.8,
+        480.7
+      ]
+    },
+    {
+      "name": "net post foot +X",
+      "world": [
+        3.05,
+        0.0
+      ],
+      "pixel": [
+        498.5,
+        435.3
+      ]
+    }
+  ]
+}

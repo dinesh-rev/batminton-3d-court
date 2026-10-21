@@ -21,7 +21,7 @@ SHUTTLE DROP (panel at top right)
     Z = along the length:   -6.70 ... 6.70  (back boundary lines)
   Values up to 0.55 m beyond the lines are allowed (shown as OUT).
 - Clear marks removes all landing marks.
-The shuttle is drawn 3x real size so it is visible from the camera.
+The shuttle is drawn 1.5x real size so it is visible from the camera.
 
 TRIPOD SETUP (separate page)
 Visit: http://localhost:8000/tripods.html
