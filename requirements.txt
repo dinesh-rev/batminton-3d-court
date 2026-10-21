@@ -1,0 +1,6 @@
+# Only shuttle_review_app.py needs these (the HTML pages and camera_link.py need nothing).
+# tkinter comes with Python (Debian/Ubuntu: sudo apt install python3-tk).
+ultralytics>=8.4   # YOLO, pulls in torch
+opencv-python>=4.8
+numpy>=1.24
+pillow>=10

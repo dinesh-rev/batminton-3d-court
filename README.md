@@ -42,3 +42,39 @@ CAMERA <-> CO-ORDINATE LINK (Python, no extra packages)
   python3 camera_link.py pixel 1 960 700    Cam 1 pixel -> court (X, Z)
   python3 camera_link.py lines              line visibility + usable tilt range
 Options: --distance --height --angle --tilt --hfov --res W H --json
+
+SHUTTLE REVIEW APP (Python desktop app, YOLO best.pt)
+  pip install -r requirements.txt
+  python3 shuttle_review_app.py --source 0                  webcam 0
+  python3 shuttle_review_app.py --source match.mp4 --cam 2  video file, Cam 2
+  python3 shuttle_review_app.py --source rtsp://...         live stream
+  Model: --model path/to/best.pt (default: best.pt next to the script, then
+  ../sample_folder/best.pt). Also --conf 0.5 --imgsz 1280 --device 0|cpu.
+- Every frame goes through YOLO; detections are linked into tracks. When a
+  track moves and then comes to rest, it is saved as a fall.
+- Saved per session in reviews/<date>_<source>/:
+    track.csv       every detection (frame, time, track id, pixel, box, conf)
+    fall_###.json   the fall: pixel + court (x, y, z) per frame, landing X/Z,
+                    doubles/singles IN/OUT
+    fall_###.jpg    the frame with the trajectory drawn
+- Review (or Space): freezes the video, draws the trajectory on the frame and
+  replays the fall on the 3D court of tripods.html (--page index for
+  index.html), using shuttle.js. The app serves this folder itself on
+  http://localhost:8000 (--port), so no separate http.server is needed, and
+  opens http://localhost:8000/tripods.html?review=live in the browser. Keep
+  that tab open: every Review replays there (the page polls
+  reviews/latest_review.json). The page moves its view to the landing spot;
+  "Replay recorded fall" in the Shuttle drop panel plays it again.
+  A saved fall can also be opened directly:
+    tripods.html?review=reviews/<session>/fall_001.json
+  Pick an older fall in the list first to review that one. Resume / Space
+  continues the video. A live stream keeps detecting and saving falls while
+  frozen.
+- Calibrate: freeze, then click the named court landmarks (Skip the ones not
+  in view, at least 4), Finish. Saved as calib_cam<N>.json and loaded again
+  next time. Until then the tripod model (same as camera_link.py) is used.
+  The cyan court overlay shows whether the camera model fits the video.
+- One camera gives exact landing spots (pixel -> floor). Flight heights are
+  estimated assuming the shuttle falls in a vertical plane through the
+  landing spot: --plane view (facing the camera, default) or --plane length
+  (along the court length). Near-vertical falls come out accurately.

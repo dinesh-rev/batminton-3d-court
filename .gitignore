@@ -1,0 +1,4 @@
+__pycache__/
+# shuttle_review_app.py session output (track.csv, fall_###.json / .jpg)
+reviews/
+*.pt

@@ -42,6 +42,7 @@ const PANEL_HTML = `
     <div><span>Doubles</span><strong id="rD">–</strong></div>
     <div><span>Singles</span><strong id="rS">–</strong></div>
   </div>
+  <button type="button" class="ghost" id="replayBtn" hidden>Replay recorded fall</button>
   <button type="button" class="ghost" id="clear">Clear marks</button>`;
 
 export function judge(x, z) {
@@ -54,7 +55,8 @@ export function judge(x, z) {
 
 // Builds the shuttle, its panel (inside `panelEl`) and click-to-drop on the court.
 // `onStatus(text)` receives status-bar messages. Call `update(now)` every frame.
-export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = () => {} }) {
+// `onReplay(fall, landing)` is called when a recorded fall starts replaying.
+export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = () => {}, onReplay = () => {} }) {
   panelEl.innerHTML = PANEL_HTML;
   const $ = id => document.getElementById(id);
 
@@ -154,6 +156,7 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
   let drop = null;
 
   function dropAt(x, z) {
+    replay = null;
     const landing = new THREE.Vector3(x, LAND_Y, z);
     // Drifts a little away from the net while it falls, then bounces on the same line.
     const dir = new THREE.Vector3(0, 0, z >= 0 ? 1 : -1);
@@ -230,6 +233,90 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
     if (k >= 1) drop = null;   // at rest; leave it lying on the court
   }
 
+  // --- Replay of a recorded fall (shuttle_review_app.py "Review") ---------
+  // `fall.trajectory` = [{t, phase, x, y, z}] in court metres, phase
+  // flight -> contact -> bounce / floor, as saved in reviews/*/fall_###.json.
+  const trailGeo = new THREE.BufferGeometry();
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff9f40 }));
+  const dripGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const drip = new THREE.Line(dripGeo, new THREE.LineDashedMaterial({ color: 0xff9f40, dashSize: 0.05, gapSize: 0.04 }));
+  trail.visible = drip.visible = false;
+  scene.add(trail, drip);
+  const replayBtn = $('replayBtn');
+  let replay = null, lastFall = null;
+
+  function playFall(fall) {
+    const pts = (fall.trajectory || []).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.t));
+    if (pts.length < 2) return false;
+    let k = pts.findIndex(p => p.phase === 'contact');
+    if (k < 0) k = pts.length - 1;
+    const air = p => p.phase === 'flight' || p.phase === 'bounce';
+    const pos = pts.map(p => new THREE.Vector3(p.x, air(p) ? Math.max(p.y, LAND_Y) : LAND_Y, p.z));
+    trailGeo.setFromPoints(pos);
+    trailGeo.setDrawRange(0, 0);
+    trail.visible = drip.visible = true;
+    // Resting pose: lying on its side, skirt pointing back the way it came.
+    const back = pos[Math.max(0, k - 1)].clone().sub(pos[k]).setY(0);
+    if (back.lengthSq() < 1e-8) back.set(0, 0, pos[k].z >= 0 ? -1 : 1);
+    back.normalize();
+    const restAxis = new THREE.Vector3(0, Math.cos(1.2), 0).addScaledVector(back, Math.sin(1.2)).normalize();
+    drop = null;
+    lastFall = fall;
+    replay = {
+      pts, pos, k, t0: performance.now(), slow: fall.slowmo || 0.5, res: judge(pts[k].x, pts[k].z),
+      q: new THREE.Quaternion().setFromUnitVectors(UP, restAxis), landQ: null,
+      restQ: new THREE.Quaternion().setFromUnitVectors(UP, restAxis), name: fall.id ? `fall #${fall.id}` : 'live track',
+    };
+    shuttle.visible = true;
+    replayBtn.hidden = false;
+    onStatus(`● Replaying ${replay.name} from the video…`);
+    onReplay(fall, pos[k].clone());
+    return true;
+  }
+
+  function updateReplay(now) {
+    if (!replay) return;
+    const r = replay, pts = r.pts, last = pts.length - 1;
+    const tt = pts[0].t + (now - r.t0) / 1000 * r.slow;    // time in the video
+    let i = 0;
+    while (i < last - 1 && pts[i + 1].t <= tt) i++;
+    const u = THREE.MathUtils.clamp((tt - pts[i].t) / Math.max(1e-6, pts[i + 1].t - pts[i].t), 0, 1);
+    _a.lerpVectors(r.pos[i], r.pos[i + 1], u);
+    if (i < r.k) {
+      // Cork leads: the skirt axis points opposite to the motion.
+      _b.subVectors(r.pos[i], r.pos[i + 1]);
+      if (_b.lengthSq() > 1e-10) r.q.setFromUnitVectors(UP, _b.normalize());
+    } else {
+      if (!r.landQ) r.landQ = r.q.clone();
+      const s = THREE.MathUtils.clamp((tt - pts[r.k].t) / 0.4, 0, 1);
+      r.q.slerpQuaternions(r.landQ, r.restQ, 1 - (1 - s) * (1 - s));
+    }
+    placeShuttle(_a, r.q);
+    trailGeo.setDrawRange(0, i + 1 + (u > 0 ? 1 : 0));
+    dripGeo.attributes.position.setXYZ(0, _a.x, _a.y, _a.z);
+    dripGeo.attributes.position.setXYZ(1, _a.x, LAND_Y, _a.z);
+    dripGeo.attributes.position.needsUpdate = true;
+    drip.computeLineDistances();
+    if (tt >= pts[r.k].t && !r.landed) {
+      r.landed = true;
+      const { x, z } = pts[r.k];
+      const color = r.res.doubles ? IN_COLOR : OUT_COLOR;
+      addMarker(x, z, r.res.doubles);
+      addRipple(x, z, color, 0);
+      addRipple(x, z, color, 180);
+      setTag(x, z, r.res);
+      showResult(x, z, r.res);
+    }
+    if (tt >= pts[last].t) {
+      replay = null;           // leave it lying where the video shows it at rest
+      trailGeo.setDrawRange(0, pts.length);
+      drip.visible = false;
+      const { x, z } = pts[r.k];
+      onStatus(`● ${r.name}: landed at (${x.toFixed(2)}, ${z.toFixed(2)}) — ${r.res.doubles ? 'IN' : 'OUT'}`);
+    }
+  }
+  replayBtn.addEventListener('click', () => { if (lastFall) playFall(lastFall); });
+
   function updateRipples(now) {
     for (let i = ripples.length - 1; i >= 0; i--) {
       const r = ripples[i];
@@ -254,7 +341,8 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
     markers.length = 0;
     if (landingTag) { scene.remove(landingTag); landingTag.element.remove(); landingTag = null; }
     drop = null;
-    shuttle.visible = false;
+    replay = null;
+    shuttle.visible = trail.visible = drip.visible = false;
     ui.result.hidden = true;
     onStatus(null);
   });
@@ -335,6 +423,33 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
 
   return {
     dropAt,
-    update(now) { updateDrop(now); updateRipples(now); },
+    playFall,
+    update(now) { updateDrop(now); updateReplay(now); updateRipples(now); },
   };
+}
+
+// Plays falls from shuttle_review_app.py (it serves this folder):
+//   ?review=live              polls reviews/latest_review.json, replays on every Review press
+//   ?review=reviews/…/fall_001.json   plays one saved fall
+export function watchReviews(shuttleDrop) {
+  const src = new URLSearchParams(location.search).get('review');
+  if (!src) return;
+  const live = src === 'live';
+  const url = live ? 'reviews/latest_review.json' : src;
+  let seen = null;
+  const poll = async () => {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        const fall = await res.json();
+        const key = live ? fall.seq : url;
+        if (key !== seen) {
+          seen = key;
+          shuttleDrop.playFall(fall);
+        }
+      }
+    } catch (e) { /* app not reachable yet - try again */ }
+    if (live) setTimeout(poll, 700);
+  };
+  poll();
 }

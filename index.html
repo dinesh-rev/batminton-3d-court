@@ -90,7 +90,7 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-    import { setupShuttleDrop } from './shuttle.js';
+    import { setupShuttleDrop, watchReviews } from './shuttle.js';
 
     // 1 scene unit = 1 metre. Coordinates: X = width, Y = height, Z = length.
     // The court centre / net is (0, 0, 0). This stays consistent in later steps.
@@ -260,7 +260,14 @@
       scene, camera, renderer,
       panelEl: document.getElementById('dropPanel'),
       onStatus: text => { statusEl.textContent = text ?? '● Scene ready'; },
+      // Recorded fall from shuttle_review_app.py: look at the landing from the video camera's side.
+      onReplay: (fall, land) => {
+        const side = fall.camera_pos ? new THREE.Vector3(...fall.camera_pos) : new THREE.Vector3(0, 0, land.z < 0 ? -20 : 20);
+        const dir = side.sub(land).setY(0).normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.9);
+        setCamera(land.x + dir.x * 6, 2.5, land.z + dir.z * 6, land.x, 0.3, land.z);
+      },
     });
+    watchReviews(shuttleDrop);
 
     function animate() {
       requestAnimationFrame(animate);
