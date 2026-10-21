@@ -5,71 +5,51 @@
     720
   ],
   "hfov": 75,
+  "part": "-Z half (Cam 1, 2 side)",
+  "error_px": 16.51,
   "points": [
     {
-      "name": "court corner -X -Z (Cam 1 corner)",
+      "name": "back line -Z x -X doubles sideline (court corner)",
       "world": [
         -3.05,
         -6.7
       ],
       "pixel": [
-        17.8,
-        176.2
+        1278.3,
+        178.3
       ]
     },
     {
-      "name": "court corner +X -Z (Cam 2 corner)",
+      "name": "back line -Z x +X doubles sideline (court corner)",
       "world": [
         3.05,
         -6.7
       ],
       "pixel": [
-        726.3,
-        84.6
+        708.9,
+        586.0
       ]
     },
     {
-      "name": "court corner +X +Z (Cam 3 corner)",
-      "world": [
-        3.05,
-        6.7
-      ],
-      "pixel": [
-        219.9,
-        297.3
-      ]
-    },
-    {
-      "name": "court corner -X +Z (Cam 4 corner)",
+      "name": "short service line -Z x -X doubles sideline",
       "world": [
         -3.05,
-        6.7
+        -1.98
       ],
       "pixel": [
-        899.0,
-        116.6
+        782.4,
+        111.2
       ]
     },
     {
-      "name": "net post foot -X",
-      "world": [
-        -3.05,
-        0.0
-      ],
-      "pixel": [
-        463.8,
-        480.7
-      ]
-    },
-    {
-      "name": "net post foot +X",
+      "name": "short service line -Z x +X doubles sideline",
       "world": [
         3.05,
-        0.0
+        -1.98
       ],
       "pixel": [
-        498.5,
-        435.3
+        107.1,
+        229.2
       ]
     }
   ]

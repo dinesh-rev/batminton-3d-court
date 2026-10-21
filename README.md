@@ -70,10 +70,22 @@ SHUTTLE REVIEW APP (Python desktop app, YOLO best.pt)
   Pick an older fall in the list first to review that one. Resume / Space
   continues the video. A live stream keeps detecting and saving falls while
   frozen.
-- Calibrate: freeze, then click the named court landmarks (Skip the ones not
-  in view, at least 4), Finish. Saved as calib_cam<N>.json and loaded again
-  next time. Until then the tripod model (same as camera_link.py) is used.
-  The cyan court overlay shows whether the camera model fits the video.
+- Calibrate (once per camera): pick the Camera number, press Calibrate. The
+  "Court part" is preset to that camera's half (Cam 1/2: -Z half, Cam 3/4:
+  +Z half; Full court also possible). Click the line crossing named in the
+  bar - the mini map shows where it is (red). Skip points not in view.
+  4 clicks minimum; with 6+ the lens FOV is estimated too. After 4 clicks the
+  cyan lines and a yellow ring (where the next point should be) appear.
+  Save writes calib_cam<N>.json and it is loaded next time;
+  a file that fits badly (> 8 px) is ignored. Until then the tripod model
+  (same as camera_link.py) is used.
+- Adjust calibration: loads the saved points of the selected camera.
+  Drag a point (or click it and use the arrow keys, Shift = 5 px), right-click
+  (or Delete) removes it, click a dot on the mini map to add / redo that
+  landmark. Points are coloured by their fit error (green < 3 px, orange
+  < 8 px, red = probably the wrong crossing) with a line to where the fitted
+  camera puts them; the cyan court lines refit live. A magnifier follows the
+  mouse. Save when the lines sit on the court.
 - One camera gives exact landing spots (pixel -> floor). Flight heights are
   estimated assuming the shuttle falls in a vertical plane through the
   landing spot: --plane view (facing the camera, default) or --plane length

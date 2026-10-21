@@ -53,23 +53,34 @@ CORNERS = [(-1, -1), (1, -1), (1, 1), (-1, 1)]     # Cam 1..4, as in camera_link
 HW, HL = cl.HALF_W, cl.HALF_L
 LIVE_PREFIXES = ('rtsp://', 'rtmp://', 'http://', 'https://', 'udp://', 'tcp://')
 
-# Floor points that can be clicked to calibrate a camera: (name, (x, z)).
-LANDMARKS = [
-    ('court corner -X -Z (Cam 1 corner)', (-HW, -HL)),
-    ('court corner +X -Z (Cam 2 corner)', (HW, -HL)),
-    ('court corner +X +Z (Cam 3 corner)', (HW, HL)),
-    ('court corner -X +Z (Cam 4 corner)', (-HW, HL)),
-    ('net post foot -X', (-HW, 0.0)),
-    ('net post foot +X', (HW, 0.0)),
-    ('short service line x -X sideline, -Z half', (-HW, -1.98)),
-    ('short service line x +X sideline, -Z half', (HW, -1.98)),
-    ('short service line x +X sideline, +Z half', (HW, 1.98)),
-    ('short service line x -X sideline, +Z half', (-HW, 1.98)),
-    ('centre line x short service line, -Z half', (0.0, -1.98)),
-    ('centre line x short service line, +Z half', (0.0, 1.98)),
-    ('centre line x back line -Z', (0.0, -HL)),
-    ('centre line x back line +Z', (0.0, HL)),
-]
+# Calibration: the part of the court a camera sees (-1 / +1 = that half, 0 = full court).
+COURT_PARTS = {'-Z half (Cam 1, 2 side)': -1, '+Z half (Cam 3, 4 side)': 1, 'Full court': 0}
+CAM_PART = {1: -1, 2: -1, 3: 1, 4: 1}
+MAP_W, MAP_H = 170, 200          # calibration mini map, px
+
+
+def landmarks(part):
+    """Floor points to click when calibrating: [(name, (x, z))]. Each half has 15 line
+    crossings + the 2 net post feet. The outer, well spread crossings come first, so
+    4 clicks already give a usable camera (and the hint ring for the next point)."""
+    sw = cl.SINGLES_WIDTH / 2
+    rows = {'back': ('back line', HL), 'long': ('long service line', HL - 0.76), 'short': ('short service line', 1.98)}
+    cols = {'-D': ('-X doubles sideline', -HW), '+D': ('+X doubles sideline', HW), 'C': ('centre line', 0.0),
+            '-S': ('-X singles sideline', -sw), '+S': ('+X singles sideline', sw)}
+    order = [('back', '-D'), ('back', '+D'), ('short', '-D'), ('short', '+D'), ('long', '-D'), ('long', '+D'),
+             'post', ('back', 'C'), ('long', 'C'), ('short', 'C'),
+             ('back', '-S'), ('back', '+S'), ('long', '-S'), ('long', '+S'), ('short', '-S'), ('short', '+S')]
+    out = []
+    for s in ([part] if part else [-1, 1]):
+        for key in order:
+            if key == 'post':
+                if s == (part or -1):         # net posts once, even for the full court
+                    out += [('net post foot -X (on the floor)', (-HW, 0.0)), ('net post foot +X (on the floor)', (HW, 0.0))]
+                continue
+            (rname, z), (cname, x) = rows[key[0]], cols[key[1]]
+            corner = ' (court corner)' if key == ('back', '-D') or key == ('back', '+D') else ''
+            out.append((f"{rname} {'-Z' if s < 0 else '+Z'} x {cname}{corner}", (x, s * z)))
+    return out
 
 
 # ---- Detections and tracking -------------------------------------------------
@@ -260,19 +271,47 @@ class CourtCamera:
         K = np.array([[f, 0, w / 2], [0, f, h / 2], [0, 0, 1.0]])
         obj = np.array([(x, cl.FLOOR_Y, z) for x, z in floor_xz], np.float64)
         img = np.array(pixels, np.float64)
-        ok, rvec, tvec = cv2.solvePnP(obj, img, K, None, flags=cv2.SOLVEPNP_IPPE)
-        if not ok:
-            raise ValueError('solvePnP failed')
-        ok, rvec, tvec = cv2.solvePnP(obj, img, K, None, rvec, tvec, True, cv2.SOLVEPNP_ITERATIVE)
-        Rcw, _ = cv2.Rodrigues(rvec)
-        pos = (-Rcw.T @ tvec).ravel()
-        if pos[1] <= cl.FLOOR_Y:
+        # A flat target has two mirror-image solutions: keep the best one above the floor.
+        n, rvecs, tvecs, _ = cv2.solvePnPGeneric(obj, img, K, None, flags=cv2.SOLVEPNP_IPPE)
+        best = None
+        for rvec, tvec in zip(rvecs[:n], tvecs[:n]):
+            rvec, tvec = cv2.solvePnPRefineLM(obj, img, K, None, rvec.copy(), tvec.copy())
+            Rcw, _ = cv2.Rodrigues(rvec)
+            pos = (-Rcw.T @ tvec).ravel()
+            if pos[1] <= cl.FLOOR_Y:
+                continue
+            proj, _ = cv2.projectPoints(obj, rvec, tvec, K, None)
+            err = float(np.sqrt(np.mean(np.sum((proj.reshape(-1, 2) - img) ** 2, axis=1))))
+            if best is None or err < best[0]:
+                best = (err, Rcw, pos)
+        if best is None:
             raise ValueError('camera came out below the floor - check the clicked points')
-        proj, _ = cv2.projectPoints(obj, rvec, tvec, K, None)
-        err = float(np.sqrt(np.mean(np.sum((proj.reshape(-1, 2) - img) ** 2, axis=1))))
-        cam = cls(K, Rcw.T, pos, (w, h), f'Cam {cam_no}: calibrated, {len(obj)} points, {err:.1f} px error')
-        cam.error = err
+        err, Rcw, pos = best
+        cam = cls(K, Rcw.T, pos, (w, h),
+                  f'Cam {cam_no}: calibrated, {len(obj)} points, {hfov:.0f}° lens, {err:.1f} px error')
+        cam.error, cam.hfov = err, hfov
         return cam
+
+    @classmethod
+    def fit(cls, cam_no, w, h, hfov, pixels, floor_xz):
+        """Like from_points; with >= 6 points the lens FOV is also estimated
+        (the one with the smallest click error), otherwise `hfov` is used."""
+        if len(pixels) < 6:
+            return cls.from_points(cam_no, w, h, hfov, pixels, floor_xz)
+        best = None
+        for step, lo, hi in ((2.0, 30.0, 120.0), (0.2, None, None)):
+            if lo is None:
+                lo, hi = best.hfov - 2, best.hfov + 2
+            for f in np.arange(lo, hi + 1e-6, step):
+                try:
+                    cam = cls.from_points(cam_no, w, h, float(f), pixels, floor_xz)
+                except (ValueError, cv2.error):
+                    continue
+                if best is None or cam.error < best.error:
+                    best = cam
+            if best is None:
+                raise ValueError('no lens FOV fits these points - check the clicks')
+        return best
 
     def ray(self, u, v):
         d = self.R @ (self.Kinv @ np.array([u, v, 1.0]))
@@ -538,19 +577,41 @@ class App:
         cam_box = ttk.Combobox(top, textvariable=self.cam_var, values=['1', '2', '3', '4'], width=3, state='readonly')
         cam_box.pack(side='left', padx=4)
         cam_box.bind('<<ComboboxSelected>>', lambda e: self.build_camera())
-        ttk.Button(top, text='Calibrate', command=self.calib_start).pack(side='left', padx=(4, 14))
+        ttk.Button(top, text='Calibrate', command=self.calib_start).pack(side='left', padx=(4, 2))
+        ttk.Button(top, text='Adjust calibration', command=self.calib_adjust).pack(side='left', padx=(0, 14))
         self.court_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(top, text='Court overlay', variable=self.court_var, command=self.render).pack(side='left')
         ttk.Button(top, text='▶ Resume', command=self.resume).pack(side='right')
         ttk.Button(top, text='⏸ Review', command=self.review).pack(side='right', padx=4)
         ttk.Button(top, text='Open 3D view', command=self.open_3d).pack(side='right', padx=(14, 0))
 
+        # Calibration bar: mini court map (where to click) | part + instructions | buttons.
         self.calib_bar = ttk.Frame(r, padding=6)
-        self.calib_label = ttk.Label(self.calib_bar, font=('TkDefaultFont', 11, 'bold'))
-        self.calib_label.pack(side='left')
-        for text, cmd in (('Cancel', self.calib_cancel), ('Finish', self.calib_finish),
-                          ('Undo', self.calib_undo), ('Skip point', self.calib_skip)):
-            ttk.Button(self.calib_bar, text=text, command=cmd).pack(side='right', padx=2)
+        self.calib_map = tk.Canvas(self.calib_bar, width=MAP_W, height=MAP_H, bg='#0c5762', highlightthickness=0)
+        self.calib_map.pack(side='left', padx=(0, 10))
+        mid = ttk.Frame(self.calib_bar)
+        mid.pack(side='left', fill='both', expand=True)
+        row = ttk.Frame(mid)
+        row.pack(anchor='w')
+        ttk.Label(row, text='Court part this camera sees').pack(side='left')
+        self.part_var = tk.StringVar()
+        part_box = ttk.Combobox(row, textvariable=self.part_var, values=list(COURT_PARTS), width=24, state='readonly')
+        part_box.pack(side='left', padx=6)
+        part_box.bind('<<ComboboxSelected>>', lambda e: self.calib_set_part())
+        self.calib_label = ttk.Label(mid, font=('TkDefaultFont', 12, 'bold'), wraplength=760, justify='left')
+        self.calib_label.pack(anchor='w', pady=(6, 2))
+        ttk.Label(mid, foreground='#555', wraplength=760, justify='left', text=(
+            'Click where the two line centres cross on the floor (the magnifier follows the mouse). Skip points '
+            'you cannot see; 4 minimum, 6+ spread out also finds the lens FOV. Adjust: drag a point, or select '
+            'it and nudge with the arrow keys (Shift = 5 px); right-click deletes it; click a dot on the map to '
+            'add / redo that point. Point colours = fit error: green < 3 px, orange < 8, red = wrong crossing. '
+            'Map: red = click now, green = done. The yellow ring shows where the current point should be.')
+                  ).pack(anchor='w')
+        btns = ttk.Frame(self.calib_bar)
+        btns.pack(side='right', fill='y')
+        for text, cmd in (('Skip point', self.calib_skip), ('Undo', self.calib_undo),
+                          ('Save', self.calib_finish), ('Cancel', self.calib_cancel)):
+            ttk.Button(btns, text=text, command=cmd, width=11).pack(side='top', pady=1)
 
         self.status = ttk.Label(r, padding=(8, 3), anchor='w')
         self.status.pack(side='bottom', fill='x')
@@ -568,8 +629,17 @@ class App:
         self.session_label.pack(anchor='w', pady=(6, 0))
         self.canvas = tk.Canvas(body, bg='black', highlightthickness=0)
         self.canvas.pack(side='left', fill='both', expand=True)
-        self.canvas.bind('<Button-1>', self.on_click)
+        self.canvas.bind('<Button-1>', self.on_press)
+        self.canvas.bind('<B1-Motion>', self.on_drag)
+        self.canvas.bind('<ButtonRelease-1>', self.on_release)
+        self.canvas.bind('<Button-3>', self.on_right_click)
+        self.canvas.bind('<Motion>', self.on_motion)
         self.canvas.bind('<Configure>', lambda e: self.render())
+        self.calib_map.bind('<Button-1>', self.on_map_click)
+        for key, dx, dy in (('Left', -1, 0), ('Right', 1, 0), ('Up', 0, -1), ('Down', 0, 1)):
+            r.bind(f'<{key}>', lambda e, dx=dx, dy=dy: self.calib_nudge(e, dx, dy, 1))
+            r.bind(f'<Shift-{key}>', lambda e, dx=dx, dy=dy: self.calib_nudge(e, dx, dy, 5))
+        r.bind('<Delete>', lambda e: self.calib_delete())
         self.set_status('Choose a source (webcam index, video file or stream URL) and press Open.')
 
     def on_space(self, ev):
@@ -651,9 +721,13 @@ class App:
             try:
                 c = json.loads(path.read_text())
                 if tuple(c['image_size']) == (w, h):
-                    self.camera = CourtCamera.from_points(cam_no, w, h, c['hfov'],
-                                                          [p['pixel'] for p in c['points']],
-                                                          [p['world'] for p in c['points']])
+                    cam = CourtCamera.from_points(cam_no, w, h, c['hfov'], [p['pixel'] for p in c['points']],
+                                                  [p['world'] for p in c['points']])
+                    if cam.error > 8:      # clicks on the wrong crossings: do not trust it
+                        self.set_status(f'{path.name} fits badly ({cam.error:.0f} px error) - using the tripod '
+                                        f'model. Press Calibrate to redo Cam {cam_no}.')
+                    else:
+                        self.camera = cam
                 else:
                     self.set_status(f'{path.name} is for {c["image_size"]}, video is {w}x{h} - using tripod model')
             except (ValueError, KeyError, json.JSONDecodeError) as e:
@@ -662,33 +736,189 @@ class App:
                                                         '\nPress Calibrate and click court landmarks for real positions.'))
         self.render()
 
-    def calib_start(self):
+    def calib_start(self, points=None, part_name=None):
+        """New calibration, or (with `points`) editing a saved one: [(world (x, z), u, v)]."""
         if self.frame is None:
             self.set_status('Open a source first.')
             return
         self.freeze()
-        self.calib = {'i': 0, 'points': []}
+        part = CAM_PART[int(self.cam_var.get())]
+        self.part_var.set(part_name or next(k for k, v in COURT_PARTS.items() if v == part))
+        self.calib = {'points': [], 'saved': points or [], 'sel': None, 'zoom': None, 'drag': False}
         self.calib_bar.pack(side='top', fill='x', after=self.root.winfo_children()[0])
+        self.calib_set_part()
+
+    def calib_adjust(self):
+        """Loads the saved calibration of this camera so its points can be moved, added or deleted."""
+        path = self.calib_path(int(self.cam_var.get()))
+        if not path.exists():
+            self.set_status(f'No saved calibration for Cam {self.cam_var.get()} yet - press Calibrate first.')
+            return
+        try:
+            c = json.loads(path.read_text())
+            pts = [(tuple(p['world']), *p['pixel']) for p in c['points']]
+        except (ValueError, KeyError) as e:
+            self.set_status(f'Cannot read {path.name}: {e}')
+            return
+        if self.size and tuple(c.get('image_size', self.size)) != tuple(self.size):
+            self.set_status(f'{path.name} was made for {c["image_size"]}, this video is {self.size} - recalibrate.')
+            return
+        part = c.get('part') if c.get('part') in COURT_PARTS else None
+        if part is None:            # older files: the camera's half if all points are on it, else the full court
+            half = landmarks(CAM_PART[int(self.cam_var.get())])
+            on_half = all(any(np.allclose(w, m[1]) for m in half) for w, _, _ in pts)
+            part = next(k for k, v in COURT_PARTS.items() if v == (CAM_PART[int(self.cam_var.get())] if on_half else 0))
+        self.calib_start(pts, part)
+        self.set_status(f'Adjusting {path.name}: drag points / arrow keys, then Save.')
+
+    def calib_set_part(self):
+        """Uses the landmark list of the chosen court part; clicked points on it are kept."""
+        c = self.calib
+        if c is None:
+            return
+        keep = c.pop('saved', None) or [(c['marks'][i][1], u, v) for i, u, v in c['points']]
+        part = COURT_PARTS[self.part_var.get()]
+        marks = landmarks(part)
+        points = []
+        for world, u, v in keep:
+            i = next((k for k, m in enumerate(marks) if np.allclose(m[1], world)), None)
+            if i is not None:
+                points.append([i, u, v])
+        c.update(part=part, marks=marks, points=points, sel=None)
+        c['i'] = self.calib_next_free(-1)
         self.calib_prompt()
 
-    def calib_prompt(self):
+    def calib_next_free(self, after):
+        """First landmark after index `after` that has no point yet."""
+        done = {i for i, _, _ in self.calib['points']}
+        j = after + 1
+        while j < len(self.calib['marks']) and j in done:
+            j += 1
+        return j
+
+    def calib_fit(self, quick=False):
+        """Provisional camera + per-point error from the points so far. `quick` keeps the lens FOV
+        (fast enough to run while a point is dragged)."""
         c = self.calib
-        if c['i'] >= len(LANDMARKS):
-            self.calib_label.config(text=f"All landmarks done ({len(c['points'])} clicked) - press Finish.")
+        c['guess'], c['resid'] = None, {}
+        if len(c['points']) < 4:
+            return
+        pixels = [(u, v) for _, u, v in c['points']]
+        world = [c['marks'][i][1] for i, _, _ in c['points']]
+        cam_no, (w, h) = int(self.cam_var.get()), self.size
+        try:
+            if quick and c.get('last_hfov'):
+                c['guess'] = CourtCamera.from_points(cam_no, w, h, c['last_hfov'], pixels, world)
+            else:
+                c['guess'] = CourtCamera.fit(cam_no, w, h, self.args.hfov, pixels, world)
+                c['last_hfov'] = c['guess'].hfov
+        except (ValueError, cv2.error):
+            return
+        for i, u, v in c['points']:
+            x, z = c['marks'][i][1]
+            p = c['guess'].project((x, cl.FLOOR_Y, z))
+            c['resid'][i] = math.hypot(p[0] - u, p[1] - v) if p else 999.0
+
+    def calib_prompt(self, quick=False):
+        c = self.calib
+        self.calib_fit(quick)
+        n = len(c['points'])
+        fit = f"  ·  fit: {c['guess'].hfov:.0f}° lens, {c['guess'].error:.1f} px" if c['guess'] else ''
+        if c['sel'] is not None:
+            i = c['points'][c['sel']][0]
+            r = c['resid'].get(i)
+            text = (f"Selected point {i + 1}: {c['marks'][i][0]}" + (f'  (error {r:.1f} px)' if r is not None else '') +
+                    f'  -  drag it or use the arrow keys{fit}')
+        elif c['i'] >= len(c['marks']):
+            text = f'All points done ({n} clicked) - adjust if needed, then Save.{fit}'
         else:
-            self.calib_label.config(text=f"Click: {LANDMARKS[c['i']][0]}   ({len(c['points'])} clicked, "
-                                         f"need ≥ 4 · Skip if not visible)")
+            text = (f"Point {c['i'] + 1}/{len(c['marks'])}:  {c['marks'][c['i']][0]}"
+                    f"   ({n} clicked, need ≥ 4){fit}")
+        self.calib_label.config(text=text)
+        self.draw_calib_map()
         self.render()
 
+    def draw_calib_map(self):
+        """Top view of the chosen court part, oriented as seen from that half's back line."""
+        c, m = self.calib, self.calib_map
+        m.delete('all')
+        s = c['part'] or -1                       # viewing side: back line at the bottom
+        zlo, zhi = (-HL, HL) if not c['part'] else sorted((0.0, s * HL))
+        fmin, fmax = min(-s * zlo, -s * zhi) - 0.5, max(-s * zlo, -s * zhi) + 0.6
+        pad = 8
+        sc = min((MAP_W - 2 * pad) / (2 * HW + 1.0), (MAP_H - 2 * pad) / (fmax - fmin))
+        X = lambda x: MAP_W / 2 + s * x * sc
+        Y = lambda z: pad + (fmax - (-s * z)) * sc
+        m.create_rectangle(X(-HW), Y(zlo), X(HW), Y(zhi), fill='#15977e', outline='')
+        for _, (x1, z1), (x2, z2) in cl.COURT_LINES:
+            a, b = max(min(z1, z2), zlo), min(max(z1, z2), zhi)
+            if a <= b:
+                m.create_line(X(x1), Y(a if z1 <= z2 else b), X(x2), Y(b if z1 <= z2 else a), fill='white')
+        m.create_line(X(-HW - 0.2), Y(0), X(HW + 0.2), Y(0), fill='white', width=3, dash=(4, 2))
+        m.create_text(MAP_W / 2, Y(0) - 7 if s < 0 or not c['part'] else Y(0) + 7, text='net', fill='white',
+                      font=('TkDefaultFont', 8))
+        cam_no = int(self.cam_var.get())
+        sx, sz = CORNERS[cam_no - 1]
+        if zlo <= sz * HL <= zhi:
+            cx, cy = X(sx * (HW + 0.35)), Y(sz * (HL + 0.35))
+            m.create_polygon(cx, cy - 6, cx - 5, cy + 4, cx + 5, cy + 4, fill='#ffe08a')
+            m.create_text(min(max(cx, 22), MAP_W - 22), cy + 12 if cy < MAP_H - 14 else cy - 14,
+                          text=f'Cam {cam_no}', fill='#ffe08a', font=('TkDefaultFont', 8, 'bold'))
+        done = {i for i, _, _ in c['points']}
+        sel = c['points'][c['sel']][0] if c['sel'] is not None else None
+        self.map_xy = []
+        for i, (_, (x, z)) in enumerate(c['marks']):
+            px, py = X(x), Y(z)
+            self.map_xy.append((px, py))
+            if i == c['i'] or i == sel:
+                m.create_oval(px - 7, py - 7, px + 7, py + 7, outline='#ff3b30' if i == c['i'] else '#ffffff', width=2)
+                m.create_oval(px - 3, py - 3, px + 3, py + 3, fill='#ff3b30' if i not in done else '#3cff8f', outline='')
+            else:
+                color = '#3cff8f' if i in done else '#9aa' if i < c['i'] else '#ffffff'
+                m.create_oval(px - 2.5, py - 2.5, px + 2.5, py + 2.5, fill=color, outline='')
+
+    def on_map_click(self, ev):
+        """Clicking a landmark on the map makes it the point to place (or selects its point)."""
+        c = self.calib
+        if not c or not getattr(self, 'map_xy', None):
+            return
+        k = min(range(len(self.map_xy)), key=lambda j: math.hypot(self.map_xy[j][0] - ev.x, self.map_xy[j][1] - ev.y))
+        if math.hypot(self.map_xy[k][0] - ev.x, self.map_xy[k][1] - ev.y) > 10:
+            return
+        c['i'] = k
+        c['sel'] = next((n for n, p in enumerate(c['points']) if p[0] == k), None)
+        self.calib_prompt()
+
     def calib_skip(self):
-        if self.calib and self.calib['i'] < len(LANDMARKS):
-            self.calib['i'] += 1
+        c = self.calib
+        if c and c['i'] < len(c['marks']):
+            c['i'], c['sel'] = self.calib_next_free(c['i']), None
             self.calib_prompt()
 
     def calib_undo(self):
-        if self.calib and self.calib['points']:
-            self.calib['i'] = self.calib['points'].pop()[0]
+        c = self.calib
+        if c and c['points']:
+            c['i'], c['sel'] = c['points'].pop()[0], None
             self.calib_prompt()
+
+    def calib_delete(self, n=None):
+        c = self.calib
+        n = c['sel'] if c and n is None else n
+        if c and n is not None:
+            i = c['points'].pop(n)[0]
+            c['sel'], c['i'] = None, min(c['i'], i)
+            self.calib_prompt()
+
+    def calib_nudge(self, ev, dx, dy, step):
+        c = self.calib
+        if not c or c['sel'] is None or isinstance(ev.widget, (tk.Entry, ttk.Entry, ttk.Combobox)):
+            return
+        p = c['points'][c['sel']]
+        p[1] = min(max(p[1] + dx * step, 0), self.size[0])
+        p[2] = min(max(p[2] + dy * step, 0), self.size[1])
+        c['zoom'] = (p[1], p[2])
+        self.calib_prompt()
+        return 'break'
 
     def calib_cancel(self):
         if self.calib:
@@ -703,16 +933,23 @@ class App:
             return
         cam_no = int(self.cam_var.get())
         w, h = self.size
+        marks = c['marks']
         pixels = [(u, v) for _, u, v in c['points']]
-        world = [LANDMARKS[i][1] for i, _, _ in c['points']]
+        world = [marks[i][1] for i, _, _ in c['points']]
         try:
-            cam = CourtCamera.from_points(cam_no, w, h, self.args.hfov, pixels, world)
+            cam = CourtCamera.fit(cam_no, w, h, self.args.hfov, pixels, world)
         except (ValueError, cv2.error) as e:
             messagebox.showerror('Calibration', f'Calibration failed: {e}')
             return
+        if cam.error > 8:
+            if not messagebox.askyesno('Calibration', f'The clicks fit badly ({cam.error:.1f} px average error) - '
+                                                      'probably a point clicked on the wrong crossing.\n\n'
+                                                      'Save anyway? (No = keep clicking / Undo)'):
+                return
         self.calib_path(cam_no).write_text(json.dumps({
-            'cam': cam_no, 'image_size': [w, h], 'hfov': self.args.hfov,
-            'points': [{'name': LANDMARKS[i][0], 'world': LANDMARKS[i][1], 'pixel': [round(u, 1), round(v, 1)]}
+            'cam': cam_no, 'image_size': [w, h], 'hfov': round(cam.hfov, 2), 'part': self.part_var.get(),
+            'error_px': round(cam.error, 2),
+            'points': [{'name': marks[i][0], 'world': marks[i][1], 'pixel': [round(u, 1), round(v, 1)]}
                        for i, u, v in c['points']]}, indent=2))
         self.calib_cancel()
         self.build_camera()
@@ -861,8 +1098,10 @@ class App:
         if self.frame is None:
             return
         img = self.frame.copy()
-        if self.camera and self.court_var.get():
-            draw_court_2d(img, self.camera)
+        # While calibrating, the court lines come from the clicks so far (once there are 4).
+        overlay_cam = self.calib['guess'] if self.calib and self.calib.get('guess') else self.camera
+        if overlay_cam and self.court_var.get() and not (self.calib and not self.calib.get('guess')):
+            draw_court_2d(img, overlay_cam)
         if self.review_fall:
             draw_fall_2d(img, self.review_fall)
         elif not self.frozen:
@@ -873,9 +1112,7 @@ class App:
             if len(tail) > 1:
                 cv2.polylines(img, [np.int32(tail)], False, (0, 165, 255), 2, cv2.LINE_AA)
         if self.calib:
-            for n, (i, u, v) in enumerate(self.calib['points']):
-                cv2.drawMarker(img, (int(u), int(v)), (0, 255, 255), cv2.MARKER_CROSS, 18, 2)
-                cv2.putText(img, str(n + 1), (int(u) + 8, int(v) - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            self.draw_calib_points(img)
         if self.frozen:
             cv2.putText(img, 'FROZEN', (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 255), 3)
         cw, ch = max(self.canvas.winfo_width(), 1), max(self.canvas.winfo_height(), 1)
@@ -889,16 +1126,110 @@ class App:
         self.canvas.delete('all')
         self.canvas.create_image(ox, oy, anchor='nw', image=self.photo)
 
-    def on_click(self, ev):
-        if not self.calib or not self.size or self.calib['i'] >= len(LANDMARKS):
-            return
+    def draw_calib_points(self, img):
+        c = self.calib
+        guess, resid = c.get('guess'), c.get('resid', {})
+        for n, (i, u, v) in enumerate(c['points']):
+            r = resid.get(i)
+            color = (0, 255, 0) if r is None or r < 3 else (0, 165, 255) if r < 8 else (0, 0, 255)
+            if guess and r is not None and r >= 1:      # line to where the fitted camera puts it
+                x, z = c['marks'][i][1]
+                p = guess.project((x, cl.FLOOR_Y, z))
+                if p:
+                    cv2.line(img, (int(u), int(v)), (int(p[0]), int(p[1])), color, 1, cv2.LINE_AA)
+            cv2.drawMarker(img, (int(u), int(v)), color, cv2.MARKER_CROSS, 18, 2)
+            if n == c['sel']:
+                cv2.circle(img, (int(u), int(v)), 13, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(img, str(i + 1), (int(u) + 8, int(v) - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        if guess and c['sel'] is None and c['i'] < len(c['marks']):
+            x, z = c['marks'][c['i']][1]
+            uv = guess.project((x, cl.FLOOR_Y, z))
+            if uv and 0 <= uv[0] <= img.shape[1] and 0 <= uv[1] <= img.shape[0]:
+                cv2.circle(img, (int(uv[0]), int(uv[1])), 16, (0, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(img, f"{c['i'] + 1}?", (int(uv[0]) + 18, int(uv[1]) + 6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        if c.get('zoom'):                                 # magnifier: 6x around the mouse / dragged point
+            u, v = int(c['zoom'][0]), int(c['zoom'][1])
+            h, w = img.shape[:2]
+            r, z = 30, 6
+            src = cv2.copyMakeBorder(img, r, r, r, r, cv2.BORDER_CONSTANT)[v:v + 2 * r, u:u + 2 * r]
+            mag = cv2.resize(src, (2 * r * z, 2 * r * z), interpolation=cv2.INTER_NEAREST)
+            m = mag.shape[0]
+            cv2.line(mag, (m // 2, 0), (m // 2, m), (0, 0, 255), 1)
+            cv2.line(mag, (0, m // 2), (m, m // 2), (0, 0, 255), 1)
+            cv2.rectangle(mag, (0, 0), (m - 1, m - 1), (255, 255, 255), 2)
+            x0 = 10 if u > w / 2 else w - m - 10          # the corner away from the mouse
+            img[10:10 + m, x0:x0 + m] = mag
+
+    # -- Calibration mouse: click = place, drag = move, right-click = delete -------
+    def to_frame(self, ev):
         s, ox, oy = self.view
         u, v = (ev.x - ox) / s, (ev.y - oy) / s
-        if not (0 <= u <= self.size[0] and 0 <= v <= self.size[1]):
+        return (u, v) if self.size and 0 <= u <= self.size[0] and 0 <= v <= self.size[1] else None
+
+    def point_near(self, uv, radius_px=12):
+        """Index (in calib['points']) of the clicked point within `radius_px` screen pixels."""
+        c = self.calib
+        if not c['points']:
+            return None
+        n = min(range(len(c['points'])), key=lambda k: math.hypot(c['points'][k][1] - uv[0], c['points'][k][2] - uv[1]))
+        d = math.hypot(c['points'][n][1] - uv[0], c['points'][n][2] - uv[1]) * self.view[0]
+        return n if d <= radius_px else None
+
+    def on_press(self, ev):
+        c = self.calib
+        uv = self.to_frame(ev) if c else None
+        if uv is None:
             return
-        self.calib['points'].append((self.calib['i'], u, v))
-        self.calib['i'] += 1
+        self.canvas.focus_set()            # arrow keys go to the video, not a text box
+        n = self.point_near(uv)
+        if n is not None:                  # grab an existing point
+            c['sel'], c['drag'] = n, True
+            c['i'] = self.calib_next_free(-1)
+        elif c['i'] < len(c['marks']):     # place the current landmark (replaces an older click of it)
+            c['points'] = [p for p in c['points'] if p[0] != c['i']]
+            c['points'].append([c['i'], *uv])
+            c['sel'] = None
+            c['i'] = self.calib_next_free(c['i'])
+        c['zoom'] = uv
         self.calib_prompt()
+
+    def on_drag(self, ev):
+        c = self.calib
+        uv = self.to_frame(ev) if c else None
+        if uv is None or not c['drag'] or c['sel'] is None:
+            return
+        c['points'][c['sel']][1:] = uv
+        c['zoom'] = uv
+        now = time.monotonic()
+        if now - c.get('last_drag', 0) > 0.04:     # refit at most ~25x a second while dragging
+            c['last_drag'] = now
+            self.calib_prompt(quick=True)
+
+    def on_release(self, ev):
+        c = self.calib
+        if c and c['drag']:
+            c['drag'] = False
+            self.calib_prompt()            # full fit (lens FOV too) once the point is dropped
+
+    def on_right_click(self, ev):
+        c = self.calib
+        uv = self.to_frame(ev) if c else None
+        n = self.point_near(uv) if uv else None
+        if n is not None:
+            self.calib_delete(n)
+
+    def on_motion(self, ev):
+        c = self.calib
+        if not c:
+            return
+        uv = self.to_frame(ev)
+        if uv != c['zoom']:
+            c['zoom'] = uv
+            now = time.monotonic()
+            if now - c.get('last_move', 0) > 0.03:
+                c['last_move'] = now
+                self.render()
 
 
 def parse_args(argv=None):
