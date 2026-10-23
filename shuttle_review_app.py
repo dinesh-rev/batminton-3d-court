@@ -313,6 +313,13 @@ class CourtCamera:
                 raise ValueError('no lens FOV fits these points - check the clicks')
         return best
 
+    def view(self):
+        """Where the camera is and how it looks, for the 3D page's camera view."""
+        r3 = lambda a: [round(float(x), 4) for x in a]
+        return {'pos': r3(self.pos), 'forward': r3(self.R[:, 2]), 'up': r3(-self.R[:, 1]),
+                'vfov': round(math.degrees(2 * math.atan(self.size[1] / 2 / self.K[1, 1])), 2),
+                'aspect': round(self.size[0] / self.size[1], 4)}
+
     def ray(self, u, v):
         d = self.R @ (self.Kinv @ np.array([u, v, 1.0]))
         return d / np.linalg.norm(d)
@@ -1013,7 +1020,8 @@ class App:
                         f" · Space or Resume to continue")
 
     def web_url(self):
-        return f'http://localhost:{self.web_port}/{self.args.page}.html?review=live'
+        display = f'&display={self.args.display}' if self.args.display else ''
+        return f'http://localhost:{self.web_port}/{self.args.page}.html?review=live{display}'
 
     def open_3d(self):
         """Opens the 3D court page; it replays every Review from then on (keep the tab open)."""
@@ -1028,6 +1036,7 @@ class App:
                   'frame': fall.points[fall.contact].frame, 'cam': int(self.cam_var.get()),
                   'camera': self.camera.label if self.camera else None,
                   'camera_pos': [round(float(a), 3) for a in self.camera.pos] if self.camera else None,
+                  'camera_view': self.camera.view() if self.camera else None,
                   'plane': self.args.plane, 'image': Path(fall.image).name if fall.image else None,
                   'landing': None, 'trajectory': pts3d or [
                       {'frame': d.frame, 't': round(d.t, 4), 'u': round(d.u, 1), 'v': round(d.v, 1),
@@ -1246,6 +1255,9 @@ def parse_args(argv=None):
     ap.add_argument('--page', choices=['tripods', 'index'], default='tripods',
                     help='3D court page used for Review (default tripods)')
     ap.add_argument('--port', type=int, default=8000, help='local web server port for the 3D page (default 8000)')
+    ap.add_argument('--display', choices=['ball', 'trajectory', 'both'],
+                    help='3D replay: ball = falling shuttle only, trajectory = recorded positions only, '
+                         'both (default: the choice last made in the page)')
     ap.add_argument('--out', default=str(HERE / 'reviews'), help='folder for saved sessions (default ./reviews)')
     g = ap.add_argument_group('tripod model (used until the camera is calibrated; same as camera_link.py)')
     g.add_argument('--distance', type=float, default=1.20)

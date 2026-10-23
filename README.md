@@ -21,7 +21,7 @@ SHUTTLE DROP (panel at top right)
     Z = along the length:   -6.70 ... 6.70  (back boundary lines)
   Values up to 0.55 m beyond the lines are allowed (shown as OUT).
 - Clear marks removes all landing marks.
-The shuttle is drawn 1.5x real size so it is visible from the camera.
+The shuttle is drawn at real size (feather model: cork, 16 feathers, threads).
 
 TRIPOD SETUP (separate page)
 Visit: http://localhost:8000/tripods.html
@@ -63,8 +63,14 @@ SHUTTLE REVIEW APP (Python desktop app, YOLO best.pt)
   http://localhost:8000 (--port), so no separate http.server is needed, and
   opens http://localhost:8000/tripods.html?review=live in the browser. Keep
   that tab open: every Review replays there (the page polls
-  reviews/latest_review.json). The page moves its view to the landing spot;
+  reviews/latest_review.json). The page shows it from the camera that filmed it
+  (its position, direction and lens; calibrated pose once calibrated), the
+  landing point marked with a small black dot;
   "Replay recorded fall" in the Shuttle drop panel plays it again.
+  "Recorded fall - show": Ball fall (animated shuttle only), Trajectory (the
+  recorded positions only: dots + path + drop lines appearing one by one) or Both.
+  The page remembers the choice; --display ball|trajectory|both sets it from
+  the app (adds &display=... to the page URL).
   A saved fall can also be opened directly:
     tripods.html?review=reviews/<session>/fall_001.json
   Pick an older fall in the list first to review that one. Resume / Space

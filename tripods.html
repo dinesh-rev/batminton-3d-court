@@ -461,12 +461,19 @@
       panelEl: document.getElementById('dropPanel'),
       onStatus: text => { statusEl.textContent = text ?? rigStatus; },
       // Recorded fall from shuttle_review_app.py: look at the landing from the video camera's side.
+      // Recorded fall from shuttle_review_app.py: show it from the camera that filmed it,
+      // with that camera's own direction and lens (calibrated pose when available).
       onReplay: (fall, land) => {
-        const side = fall.camera_pos ? new THREE.Vector3(...fall.camera_pos)
-          : (tripods[(fall.cam || 1) - 1]?.lens.clone() ?? new THREE.Vector3(0, 0, land.z < 0 ? -20 : 20));
-        // Swing ~50° off that line so the tripod itself does not block the view.
-        const dir = side.sub(land).setY(0).normalize().applyAxisAngle(UP, 0.9);
-        setCamera(land.x + dir.x * 4, 2.2, land.z + dir.z * 4, land.x, 0.3, land.z);
+        const v = fall.camera_view;
+        if (v) {
+          const pos = new THREE.Vector3(...v.pos);
+          const target = pos.clone().addScaledVector(new THREE.Vector3(...v.forward), Math.max(3, pos.distanceTo(land)));
+          setCamera(pos.x, pos.y, pos.z, target.x, target.y, target.z, v.vfov);
+        } else {                                  // older saved falls: the Cam button view of that tripod
+          const t = tripods[(fall.cam || 1) - 1];
+          const target = t.lens.clone().addScaledVector(t.look, 3);
+          setCamera(t.lens.x, t.lens.y, t.lens.z, target.x, target.y, target.z, camVfov);
+        }
       },
     });
     watchReviews(shuttleDrop);

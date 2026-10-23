@@ -9,7 +9,7 @@ const HALF_L = 13.40 / 2;
 const SINGLES_WIDTH = 5.18;
 
 const LAND_Y = 0.056;            // just above the painted lines
-const SHUTTLE_SCALE = 1.5;       // a real shuttle (~8.5 cm) is hard to see from the camera
+const SHUTTLE_SCALE = 1;         // real size: 25 mm cork, 70 mm feathers, 68 mm across the top
 const CORK_R = 0.0125 * SHUTTLE_SCALE;
 const REGION_X = HALF_W + 0.55;  // clickable/droppable area = court + coloured border
 const REGION_Z = HALF_L + 0.55;
@@ -42,7 +42,15 @@ const PANEL_HTML = `
     <div><span>Doubles</span><strong id="rD">–</strong></div>
     <div><span>Singles</span><strong id="rS">–</strong></div>
   </div>
-  <button type="button" class="ghost" id="replayBtn" hidden>Replay recorded fall</button>
+  <div id="replayBox" hidden>
+    <p class="panel-title" style="margin-top:16px">Recorded fall - show</p>
+    <div class="seg" role="tablist">
+      <button type="button" id="showBall" aria-pressed="false">Ball fall</button>
+      <button type="button" id="showPath" aria-pressed="false">Trajectory</button>
+      <button type="button" id="showBoth" aria-pressed="false">Both</button>
+    </div>
+    <button type="button" class="ghost" id="replayBtn">Replay recorded fall</button>
+  </div>
   <button type="button" class="ghost" id="clear">Clear marks</button>`;
 
 export function judge(x, z) {
@@ -60,31 +68,59 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
   panelEl.innerHTML = PANEL_HTML;
   const $ = id => document.getElementById(id);
 
-  // Shuttle model, origin at the bottom of the cork, skirt pointing +Y.
+  // Feather shuttle, real size. Origin at the bottom of the cork, skirt pointing +Y:
+  // 25 mm cork, 16 goose feathers (70 mm) fanning from 26 mm to 68 mm across,
+  // each with a quill, held by two thread bands.
   const shuttle = new THREE.Group();
   {
     const r = 0.0125;
     const cork = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: 0xe9dcc0, roughness: 0.7 })
+      new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.55 })     // white leather cover
     );
     cork.position.y = r;
-    const band = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, 0.007, 20),
-      new THREE.MeshStandardMaterial({ color: 0x1f8f74, roughness: 0.5 })
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, 0.006, 24),
+      new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.55 })
     );
-    band.position.y = r + 0.0035;
-    const featherMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
-    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.013, 0.07, 28, 1, true), featherMat);
-    skirt.position.y = r + 0.007 + 0.035;
-    const threadMat = new THREE.MeshStandardMaterial({ color: 0xcfd8d4, roughness: 0.6 });
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.034, 0.0012, 6, 32), threadMat);
-    rim.rotation.x = Math.PI / 2;
-    rim.position.y = r + 0.007 + 0.07;
-    const thread = new THREE.Mesh(new THREE.TorusGeometry(0.0235, 0.0009, 6, 32), threadMat);
-    thread.rotation.x = Math.PI / 2;
-    thread.position.y = r + 0.007 + 0.035;
-    for (const m of [cork, band, skirt, rim, thread]) { m.castShadow = true; shuttle.add(m); }
+    base.position.y = r + 0.003;
+    const y0 = r + 0.006, LEN = 0.07, R0 = 0.013, R1 = 0.034, N = 16;
+    const slant = Math.hypot(LEN, R1 - R0), tilt = Math.atan2(R1 - R0, LEN);
+    // One feather vane: narrow at the quill, widening to a rounded tip; the lower part is bare quill.
+    const vane = new THREE.Shape();
+    vane.moveTo(-0.0012, slant * 0.3);
+    vane.lineTo(-0.0068, slant * 0.82);
+    vane.quadraticCurveTo(-0.0075, slant, 0, slant);
+    vane.quadraticCurveTo(0.0075, slant, 0.0068, slant * 0.82);
+    vane.lineTo(0.0012, slant * 0.3);
+    vane.closePath();
+    const vaneGeo = new THREE.ShapeGeometry(vane, 6);
+    const quillGeo = new THREE.CylinderGeometry(0.0006, 0.0009, slant, 5);
+    quillGeo.translate(0, slant / 2, 0);
+    const featherMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, side: THREE.DoubleSide,
+      transparent: true, opacity: 0.9, depthWrite: false });
+    const quillMat = new THREE.MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.5 });
+    for (let k = 0; k < N; k++) {
+      const arm = new THREE.Group();             // turns to the feather's place round the cork
+      arm.rotation.y = (k / N) * Math.PI * 2;
+      const f = new THREE.Group();               // leans out along the cone
+      f.position.set(0, y0, R0);
+      f.rotation.x = tilt;
+      const v = new THREE.Mesh(vaneGeo, featherMat);
+      v.rotation.y = 0.18;                       // overlap like real feathers
+      f.add(v, new THREE.Mesh(quillGeo, quillMat));
+      arm.add(f);
+      shuttle.add(arm);
+    }
+    const threadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 });
+    for (const t of [0.3, 0.5]) {                // two thread bands round the quills
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R0 + (R1 - R0) * t, 0.0007, 5, 40), threadMat);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = y0 + LEN * t;
+      shuttle.add(ring);
+    }
+    shuttle.add(cork, base);
+    shuttle.traverse(o => { if (o.isMesh) o.castShadow = true; });
   }
   shuttle.scale.setScalar(SHUTTLE_SCALE);
   shuttle.visible = false;
@@ -236,14 +272,46 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
   // --- Replay of a recorded fall (shuttle_review_app.py "Review") ---------
   // `fall.trajectory` = [{t, phase, x, y, z}] in court metres, phase
   // flight -> contact -> bounce / floor, as saved in reviews/*/fall_###.json.
+  // Display: 'ball' = animated shuttle only, 'trajectory' = the recorded
+  // positions only (appearing one by one), 'both' = animated shuttle + growing path.
   const trailGeo = new THREE.BufferGeometry();
   const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xff9f40 }));
   const dripGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
   const drip = new THREE.Line(dripGeo, new THREE.LineDashedMaterial({ color: 0xff9f40, dashSize: 0.05, gapSize: 0.04 }));
-  trail.visible = drip.visible = false;
-  scene.add(trail, drip);
-  const replayBtn = $('replayBtn');
-  let replay = null, lastFall = null;
+  const dots = new THREE.Group();          // one sphere per recorded position
+  const dotGeo = new THREE.SphereGeometry(0.012, 12, 8);
+  const dotMats = {
+    flight: new THREE.MeshBasicMaterial({ color: 0xff9f40 }),
+    bounce: new THREE.MeshBasicMaterial({ color: 0xffd28a }),
+    land: new THREE.MeshBasicMaterial({ color: 0x000000 }),
+  };
+  const stemGeo = new THREE.BufferGeometry();
+  const stems = new THREE.LineSegments(stemGeo,       // faint drop lines: dot -> floor
+    new THREE.LineBasicMaterial({ color: 0xff9f40, transparent: true, opacity: 0.25 }));
+  trail.visible = drip.visible = dots.visible = stems.visible = false;
+  scene.add(trail, drip, dots, stems);
+  const replayBox = $('replayBox'), replayBtn = $('replayBtn');
+  const showBtns = { ball: $('showBall'), trajectory: $('showPath'), both: $('showBoth') };
+  let replay = null, lastFall = null, replayMarker = null;
+
+  const DISPLAY_KEY = 'shuttleReplayDisplay';
+  let display = new URLSearchParams(location.search).get('display');
+  if (!(display in showBtns)) {
+    try { display = localStorage.getItem(DISPLAY_KEY); } catch (e) { display = null; }
+  }
+  if (!(display in showBtns)) display = 'both';
+  function setDisplay(d) {
+    display = d;
+    for (const [k, b] of Object.entries(showBtns)) {
+      b.classList.toggle('active', k === d);
+      b.setAttribute('aria-pressed', String(k === d));
+    }
+    try { localStorage.setItem(DISPLAY_KEY, d); } catch (e) { /* private mode */ }
+  }
+  setDisplay(display);
+  for (const [k, b] of Object.entries(showBtns)) {
+    b.addEventListener('click', () => { setDisplay(k); if (lastFall) playFall(lastFall); });
+  }
 
   function playFall(fall) {
     let pts = (fall.trajectory || []).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.t));
@@ -262,9 +330,26 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
     if (pts.length < 2) return false;
     const air = p => p.phase === 'flight' || p.phase === 'bounce';
     const pos = pts.map(p => new THREE.Vector3(p.x, air(p) ? Math.max(p.y, LAND_Y) : LAND_Y, p.z));
+    const res = judge(pts[k].x, pts[k].z);
+
+    // Path, dots and drop lines (shown according to `display`).
     trailGeo.setFromPoints(pos);
+    dots.clear();
+    pos.forEach((p, i) => {
+      const mat = i === k ? dotMats.land : pts[i].phase === 'bounce' ? dotMats.bounce : dotMats.flight;
+      const dot = new THREE.Mesh(dotGeo, mat);
+      dot.position.copy(p);
+      if (i === k) dot.scale.setScalar(1.6);
+      dots.add(dot);
+    });
+    stemGeo.setFromPoints(pos.flatMap(p => (p.y > LAND_Y + 0.01 ? [p, new THREE.Vector3(p.x, LAND_Y, p.z)] : [])));
+    // Every mode plays from the start; the path grows dot by dot at the recorded times.
+    const path = display !== 'ball';
+    trail.visible = dots.visible = stems.visible = path;
     trailGeo.setDrawRange(0, 0);
-    trail.visible = drip.visible = true;
+    dots.children.forEach(d => { d.visible = false; });
+    drip.visible = true;
+
     // Resting pose: lying on its side, skirt pointing back the way it came.
     const back = pos[Math.max(0, k - 1)].clone().sub(pos[k]).setY(0);
     if (back.lengthSq() < 1e-8) back.set(0, 0, pos[k].z >= 0 ? -1 : 1);
@@ -272,16 +357,50 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
     const restAxis = new THREE.Vector3(0, Math.cos(1.2), 0).addScaledVector(back, Math.sin(1.2)).normalize();
     drop = null;
     lastFall = fall;
+    if (replayMarker) {                      // one landing mark per recorded fall, not one per replay
+      scene.remove(replayMarker);
+      replayMarker.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+      markers.splice(markers.indexOf(replayMarker), 1);
+      replayMarker = null;
+    }
     replay = {
-      pts, pos, k, t0: performance.now(), slow: fall.slowmo || 0.5, res: judge(pts[k].x, pts[k].z),
+      pts, pos, k, res, t0: performance.now(), slow: fall.slowmo || 0.5, landed: false,
       q: new THREE.Quaternion().setFromUnitVectors(UP, restAxis), landQ: null,
       restQ: new THREE.Quaternion().setFromUnitVectors(UP, restAxis), name: fall.id ? `fall #${fall.id}` : 'live track',
     };
-    shuttle.visible = true;
-    replayBtn.hidden = false;
-    onStatus(`● Replaying ${replay.name} from the video…`);
+    shuttle.visible = display !== 'trajectory';
+    replayBox.hidden = false;
     onReplay(fall, pos[k].clone());
+    onStatus(`● Replaying ${replay.name} from the video…`);
     return true;
+  }
+
+  // Landing spot of a recorded fall: a small black dot on the exact point.
+  function addSpotMark(x, z) {
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.018, 32),
+      new THREE.MeshBasicMaterial({ color: 0x000000, depthWrite: false }));
+    dot.rotation.x = -Math.PI / 2;
+    dot.position.set(x, LAND_Y + 0.004, z);
+    scene.add(dot);
+    markers.push(dot);
+    return dot;
+  }
+
+  function replayLanded(r) {
+    r.landed = true;
+    const { x, z } = r.pts[r.k];
+    replayMarker = addSpotMark(x, z);
+    setTag(x, z, r.res);
+    showResult(x, z, r.res);
+  }
+
+  function replayDone(r) {
+    replay = null;           // leave it lying where the video shows it at rest
+    trailGeo.setDrawRange(0, r.pts.length);
+    dots.children.forEach(d => { d.visible = true; });
+    drip.visible = false;
+    const { x, z } = r.pts[r.k];
+    onStatus(`● ${r.name}: landed at (${x.toFixed(2)}, ${z.toFixed(2)}) — ${r.res.doubles ? 'IN' : 'OUT'}`);
   }
 
   function updateReplay(now) {
@@ -302,28 +421,15 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
       r.q.slerpQuaternions(r.landQ, r.restQ, 1 - (1 - s) * (1 - s));
     }
     placeShuttle(_a, r.q);
-    trailGeo.setDrawRange(0, i + 1 + (u > 0 ? 1 : 0));
+    const shown = i + 1 + (u > 0 ? 1 : 0);
+    trailGeo.setDrawRange(0, shown);
+    dots.children.forEach((d, j) => { d.visible = j < shown; });
     dripGeo.attributes.position.setXYZ(0, _a.x, _a.y, _a.z);
     dripGeo.attributes.position.setXYZ(1, _a.x, LAND_Y, _a.z);
     dripGeo.attributes.position.needsUpdate = true;
     drip.computeLineDistances();
-    if (tt >= pts[r.k].t && !r.landed) {
-      r.landed = true;
-      const { x, z } = pts[r.k];
-      const color = r.res.doubles ? IN_COLOR : OUT_COLOR;
-      addMarker(x, z, r.res.doubles);
-      addRipple(x, z, color, 0);
-      addRipple(x, z, color, 180);
-      setTag(x, z, r.res);
-      showResult(x, z, r.res);
-    }
-    if (tt >= pts[last].t) {
-      replay = null;           // leave it lying where the video shows it at rest
-      trailGeo.setDrawRange(0, pts.length);
-      drip.visible = false;
-      const { x, z } = pts[r.k];
-      onStatus(`● ${r.name}: landed at (${x.toFixed(2)}, ${z.toFixed(2)}) — ${r.res.doubles ? 'IN' : 'OUT'}`);
-    }
+    if (tt >= pts[r.k].t && !r.landed) replayLanded(r);
+    if (tt >= pts[last].t) replayDone(r);
   }
   replayBtn.addEventListener('click', () => { if (lastFall) playFall(lastFall); });
 
@@ -352,7 +458,8 @@ export function setupShuttleDrop({ scene, camera, renderer, panelEl, onStatus = 
     if (landingTag) { scene.remove(landingTag); landingTag.element.remove(); landingTag = null; }
     drop = null;
     replay = null;
-    shuttle.visible = trail.visible = drip.visible = false;
+    replayMarker = null;
+    shuttle.visible = trail.visible = drip.visible = dots.visible = stems.visible = false;
     ui.result.hidden = true;
     onStatus(null);
   });
